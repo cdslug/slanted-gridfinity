@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slanted Gridfinity Bin Generator</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div class="app">
+
+    <!-- ================= Sidebar ================= -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1>Slanted Gridfinity</h1>
+        <div class="subtitle">Diagonal bin generator for constrained drawers</div>
+      </div>
+
+      <div class="sidebar-body">
+
+        <!-- Grid Size -->
+        <div class="control-section">
+          <h3>Grid Size</h3>
+          <div class="input-row">
+            <div class="control-group">
+              <label for="grid-x">X units</label>
+              <input type="number" id="grid-x" min="1" max="6" step="1" value="2">
+            </div>
+            <div class="control-group">
+              <label for="grid-y">Y units</label>
+              <input type="number" id="grid-y" min="1" max="6" step="1" value="2">
+            </div>
+          </div>
+        </div>
+
+        <!-- Height -->
+        <div class="control-section">
+          <h3>Height</h3>
+          <div class="control-group">
+            <label for="height-units">Height units</label>
+            <input type="number" id="height-units" min="1" max="14" step="1" value="7">
+            <div class="value-display" id="height-units-val"></div>
+            <div class="value-display" id="diagonal-val"></div>
+          </div>
+        </div>
+
+        <!-- Slant / Offset -->
+        <div class="control-section">
+          <h3>Slant Offset</h3>
+          <div class="control-group">
+            <label for="offset-units">Offset (grid units)</label>
+            <input type="number" id="offset-units" min="0" max="8" step="0.5" value="2">
+            <div class="value-display" id="offset-units-val"></div>
+          </div>
+          <div class="control-group">
+            <label>Offset axis</label>
+            <div class="radio-group">
+              <label><input type="radio" name="offset-axis" value="x" checked> X axis</label>
+              <label><input type="radio" name="offset-axis" value="y"> Y axis</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Walls -->
+        <div class="control-section">
+          <h3>Walls</h3>
+          <div class="control-group">
+            <label for="wall-thickness">Wall thickness (mm)</label>
+            <input type="range" id="wall-thickness" min="0.40" max="2.00" step="0.01" value="0.82">
+            <div class="value-display" id="wall-thickness-val"></div>
+          </div>
+          <div class="control-group">
+            <label for="corner-segments">Corner resolution</label>
+            <input type="range" id="corner-segments" min="1" max="16" step="1" value="8">
+          </div>
+        </div>
+
+        <!-- Base -->
+        <div class="control-section">
+          <h3>Base</h3>
+          <div class="checkbox-group">
+            <input type="checkbox" id="include-base" checked>
+            <label for="include-base">Include gridfinity base profile</label>
+          </div>
+        </div>
+
+        <!-- End Bin -->
+        <div class="control-section">
+          <h3>End Bin</h3>
+          <div class="checkbox-group">
+            <input type="checkbox" id="end-bin-enabled">
+            <label for="end-bin-enabled">Generate end bin (support wedge)</label>
+          </div>
+          <div id="end-bin-controls" style="display: none; margin-top: 8px;">
+            <div class="input-row">
+              <div class="control-group">
+                <label for="end-grid-x">X units</label>
+                <input type="number" id="end-grid-x" min="1" max="6" step="1" value="2">
+              </div>
+              <div class="control-group">
+                <label for="end-grid-y">Y units</label>
+                <input type="number" id="end-grid-y" min="1" max="6" step="1" value="2">
+              </div>
+            </div>
+            <div class="value-display" id="end-bin-info"></div>
+          </div>
+        </div>
+
+        <!-- Visualization -->
+        <div class="control-section">
+          <h3>Visualization</h3>
+          <div class="checkbox-group">
+            <input type="checkbox" id="show-wireframe">
+            <label for="show-wireframe">Show wireframe</label>
+          </div>
+          <div class="checkbox-group" style="margin-top: 6px;">
+            <input type="checkbox" id="show-cross-section">
+            <label for="show-cross-section">Show cross-section plane</label>
+          </div>
+          <div class="cross-section-row" id="cross-section-controls">
+            <input type="range" id="cross-section-z" min="0" max="100" step="1" value="50">
+            <span class="cs-label">Z = <span id="cross-section-z-val">0</span>mm</span>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="btn btn-primary btn-full" id="export-stl">Export STL</button>
+      </div>
+    </aside>
+
+    <!-- ================= Viewport ================= -->
+    <main class="viewport">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- Dimensions overlay -->
+      <div class="info-overlay">
+        <h4>Dimensions</h4>
+        <div id="dim-info"></div>
+      </div>
+
+      <!-- Bottom toolbar -->
+      <div class="viewport-toolbar">
+        <button class="btn btn-sm" id="reset-camera">Reset Camera</button>
+      </div>
+    </main>
+
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

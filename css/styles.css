@@ -1,0 +1,378 @@
+/* =========================================================================
+   Slanted Gridfinity — Dark theme matching LinearVolumeSweep reference app
+   Colors: bg #1a1a2e, sidebar #0f172a, canvas #0d1117
+   Text: #e0e0e0, muted #8899aa, headings #c8e6ff, primary #4a90d9
+   ========================================================================= */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  color: #e0e0e0;
+  background: #1a1a2e;
+  overflow: hidden;
+}
+
+/* -------------------------------------------------------------------------
+   App layout
+   ------------------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* -------------------------------------------------------------------------
+   Sidebar
+   ------------------------------------------------------------------------- */
+
+.sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: #0f172a;
+  border-right: 1px solid #2a3a5a;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar-header {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid #2a3a5a;
+}
+
+.sidebar-header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  color: #c8e6ff;
+  margin: 0 0 2px;
+}
+
+.sidebar-header .subtitle {
+  font-size: 11px;
+  color: #8899aa;
+}
+
+.sidebar-body {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #2a3a5a;
+}
+
+/* -------------------------------------------------------------------------
+   Control sections
+   ------------------------------------------------------------------------- */
+
+.control-section {
+  margin-bottom: 16px;
+}
+
+.control-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8899aa;
+  margin-bottom: 8px;
+}
+
+.control-group {
+  margin-bottom: 8px;
+}
+
+.control-group label {
+  display: block;
+  font-size: 12px;
+  color: #b0bec5;
+  margin-bottom: 3px;
+}
+
+.control-group .value-display {
+  font-size: 11px;
+  color: #8899aa;
+  margin-top: 2px;
+}
+
+/* -------------------------------------------------------------------------
+   Inputs
+   ------------------------------------------------------------------------- */
+
+input[type="number"],
+input[type="range"],
+select {
+  width: 100%;
+  background: #1a2744;
+  border: 1px solid #2a3a5a;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input[type="number"]:focus,
+select:focus {
+  border-color: #4a90d9;
+}
+
+input[type="range"] {
+  padding: 0;
+  height: 6px;
+  border: none;
+  border-radius: 3px;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4a90d9;
+  border: 2px solid #0f172a;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #2a3a5a;
+}
+
+/* Inline row for two inputs side by side */
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.input-row .control-group {
+  flex: 1;
+}
+
+/* Radio group */
+.radio-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #b0bec5;
+}
+
+.radio-group input[type="radio"] {
+  width: auto;
+  accent-color: #4a90d9;
+}
+
+/* Checkbox */
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: auto;
+  accent-color: #4a90d9;
+}
+
+.checkbox-group label {
+  margin-bottom: 0;
+  cursor: pointer;
+}
+
+/* -------------------------------------------------------------------------
+   Buttons
+   ------------------------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid #2a3a5a;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: #1a2744;
+  color: #e0e0e0;
+}
+
+.btn:hover {
+  border-color: #4a90d9;
+  background: #1e3050;
+}
+
+.btn-primary {
+  background: #4a90d9;
+  border-color: #4a90d9;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #3a7ac0;
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* -------------------------------------------------------------------------
+   Viewport
+   ------------------------------------------------------------------------- */
+
+.viewport {
+  flex: 1;
+  position: relative;
+  background: #0d1117;
+  overflow: hidden;
+}
+
+.viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* -------------------------------------------------------------------------
+   Info overlay (floating panel in viewport)
+   ------------------------------------------------------------------------- */
+
+.info-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: rgba(22, 33, 62, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #2a3a5a;
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-width: 240px;
+  max-width: 300px;
+  pointer-events: auto;
+}
+
+.info-overlay h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #8899aa;
+  margin-bottom: 8px;
+}
+
+.dim-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.dim-row span:first-child {
+  color: #8899aa;
+}
+
+.dim-row span:last-child {
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+}
+
+.dim-row.highlight span:last-child {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+/* -------------------------------------------------------------------------
+   Bottom toolbar in viewport
+   ------------------------------------------------------------------------- */
+
+.viewport-toolbar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: rgba(22, 33, 62, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid #2a3a5a;
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+
+/* -------------------------------------------------------------------------
+   Cross-section slider row
+   ------------------------------------------------------------------------- */
+
+.cross-section-row {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.cross-section-row input[type="range"] {
+  flex: 1;
+}
+
+.cross-section-row .cs-label {
+  font-size: 11px;
+  color: #8899aa;
+  min-width: 55px;
+  text-align: right;
+}
+
+/* -------------------------------------------------------------------------
+   Scrollbar
+   ------------------------------------------------------------------------- */
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #2a3a5a;
+  border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: #3a4a6a;
+}
