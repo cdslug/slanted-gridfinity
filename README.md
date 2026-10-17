@@ -4,7 +4,7 @@ A browser tool that generates Gridfinity bins tilted along one axis, so tall
 items fit in drawers that are too shallow for an upright bin. Set the grid
 size, height and slant offset, preview the bin in 3D, and export an STL.
 
-Live version: [formfitprint.com/misc/slanted-gridfinity](https://formfitprint.com/misc/slanted-gridfinity)
+Live version: [formfitprint.com/tools/slanted-gridfinity/app/](https://formfitprint.com/tools/slanted-gridfinity/app/)
 
 ## Why
 
@@ -111,7 +111,7 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 
 The app uses only relative paths, so you can copy the folder into any static
 site under any path. [Form Fit Print](https://formfitprint.com) includes this
-repo as a git submodule and copies it to `/misc/slanted-gridfinity/` at build time.
+repo as a git submodule and copies it to `/tools/slanted-gridfinity/app/` at build time.
 
 ## Contributing
 
