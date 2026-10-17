@@ -4,7 +4,7 @@ A browser tool that generates Gridfinity bins tilted along one axis, so tall
 items fit in drawers that are too shallow for an upright bin. Set the grid
 size, height and slant offset, preview the bin in 3D, and export an STL.
 
-Live version: [formfitprint.com/misc/angled-bins](https://formfitprint.com/misc/angled-bins)
+Live version: [formfitprint.com/misc/slanted-gridfinity](https://formfitprint.com/misc/slanted-gridfinity)
 
 ## Run it locally
 
