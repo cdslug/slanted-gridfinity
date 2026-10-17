@@ -1,16 +1,23 @@
 /**
  * gridfinity-geometry.js — Slanted Gridfinity bin mesh generation.
  *
- * Generates watertight triangle meshes for:
+ * Generates closed, outward-facing triangle meshes for:
  *   1. A slanted bin (top cross-section offset from bottom)
  *   2. An optional end bin (wedge that fills the gap under the slant)
+ *
+ * Each mesh is a set of closed shells (the body, plus one per base foot,
+ * touching the body's underside): every edge is shared by exactly two
+ * triangles with opposite winding, so back faces never need drawing.
  *
  * Key constraint: wall thickness in the XY plane is maintained at every Z level
  * (matches 3D printer layer-line width requirement).
  *
- * Coordinate convention (matches kennetek/gridfinity-rebuilt-openscad):
- *   - Interior floor at Z = 0
- *   - Base extends below to Z = -BASE_HEIGHT_MM (-7.0 mm)
+ * Coordinate convention:
+ *   - Built like kennetek/gridfinity-rebuilt-openscad (interior floor at Z = 0,
+ *     base extending below to Z = -BASE_HEIGHT_MM), then lifted so the
+ *     bottom-most surface rests on Z = 0 — the build plate. With the base the
+ *     interior floor ends up at Z = BASE_HEIGHT_MM (dimensions.floorZ);
+ *     without it, on top of the 2.25mm bridge slab that stays as the floor.
  *   - Z-up, XY is the grid plane
  *   - Main bin centered at XY origin (at the base)
  */
@@ -23,10 +30,10 @@ export const GRID_MM = 42.0;
 export const TOLERANCE_MM = 0.5;
 export const SPEC_WALL_MM = 0.95;
 export const BASE_HEIGHT_MM = 7.0;
+export const CORNER_SEGMENTS = 8;   // arc segments per rounded corner (0.02mm max chord error)
 export const HEIGHT_UNIT_MM = 7.0;
 export const BASE_CORNER_RADIUS = 3.75;
 export const XY_CLEARANCE_MM = 0.25;
-export const UNIT_BASE_TOP_MM = 41.5;
 
 // Base profile: [height_from_base_bottom, inset_from_unit_base_top]
 const BASE_UNIT_PROFILE_LEVELS = [
@@ -42,16 +49,18 @@ const BRIDGE_Z_BOTTOM = -BASE_HEIGHT_MM + 4.75; // = -2.25
 // Dimension helpers
 // ---------------------------------------------------------------------------
 
-export function binOuterMM(units) {
-  return GRID_MM * units - TOLERANCE_MM;
+// `units` may be fractional (e.g. 0.5 for a half-width bin); `gridMM` is the
+// baseplate pitch, 42mm in the spec.
+export function binOuterMM(units, gridMM = GRID_MM) {
+  return gridMM * units - TOLERANCE_MM;
 }
 
 export function interiorHeightMM(hUnits) {
   return HEIGHT_UNIT_MM * hUnits - BASE_HEIGHT_MM;
 }
 
-export function interiorWidthMM(units, wallT) {
-  return binOuterMM(units) - 2 * wallT;
+export function interiorWidthMM(units, wallT, gridMM = GRID_MM) {
+  return binOuterMM(units, gridMM) - 2 * wallT;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,17 +91,45 @@ function roundedRectPoints(width, height, radius, segments = 8) {
 }
 
 // ---------------------------------------------------------------------------
-// Triangle helpers
+// Mesh builder — writes triangles straight into a growable Float32Array
+// (9 floats per triangle: three xyz vertices, CCW seen from outside).
 // ---------------------------------------------------------------------------
 
-function triNormal(v1, v2, v3) {
-  const ax = v2[0] - v1[0], ay = v2[1] - v1[1], az = v2[2] - v1[2];
-  const bx = v3[0] - v1[0], by = v3[1] - v1[1], bz = v3[2] - v1[2];
-  const nx = ay * bz - az * by;
-  const ny = az * bx - ax * bz;
-  const nz = ax * by - ay * bx;
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  return [nx / len, ny / len, nz / len];
+function samePoint(a, b) {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
+class MeshBuilder {
+  constructor(capacityTris = 4096) {
+    this.positions = new Float32Array(capacityTris * 9);
+    this.length = 0;
+  }
+
+  tri(a, b, c) {
+    // Zero-area triangles (e.g. where the end bin's wedge height clamps to 0)
+    // are skipped: their edges cancel out, so the neighbours still pair up.
+    if (samePoint(a, b) || samePoint(b, c) || samePoint(c, a)) return;
+    if (this.length + 9 > this.positions.length) {
+      const grown = new Float32Array(this.positions.length * 2);
+      grown.set(this.positions);
+      this.positions = grown;
+    }
+    const p = this.positions;
+    const i = this.length;
+    p[i]     = a[0]; p[i + 1] = a[1]; p[i + 2] = a[2];
+    p[i + 3] = b[0]; p[i + 4] = b[1]; p[i + 5] = b[2];
+    p[i + 6] = c[0]; p[i + 7] = c[1]; p[i + 8] = c[2];
+    this.length = i + 9;
+  }
+
+  // Trim to size and shift up by `dz` so the bottom-most surface rests on Z = 0.
+  finish(dz = 0) {
+    const positions = this.positions.slice(0, this.length);
+    if (dz) {
+      for (let i = 2; i < positions.length; i += 3) positions[i] += dz;
+    }
+    return { positions, triangleCount: this.length / 9 };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -104,109 +141,95 @@ function makeRing(z, w, h, r, offset, cornerSegments) {
   return pts2d.map(([x, y]) => [x + offset[0], y + offset[1], z]);
 }
 
-function addStrip(tris, ring1, ring2, flip = false) {
+function addStrip(mesh, ring1, ring2, flip = false) {
   const n = ring1.length;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
     if (!flip) {
-      tris.push({ v1: ring1[i], v2: ring1[j], v3: ring2[j] });
-      tris.push({ v1: ring1[i], v2: ring2[j], v3: ring2[i] });
+      mesh.tri(ring1[i], ring1[j], ring2[j]);
+      mesh.tri(ring1[i], ring2[j], ring2[i]);
     } else {
-      tris.push({ v1: ring1[i], v2: ring2[j], v3: ring1[j] });
-      tris.push({ v1: ring1[i], v2: ring2[i], v3: ring2[j] });
+      mesh.tri(ring1[i], ring2[j], ring1[j]);
+      mesh.tri(ring1[i], ring2[i], ring2[j]);
     }
   }
 }
 
-function addFan(tris, ring, center, flip = false) {
+function addFan(mesh, ring, center, flip = false) {
   const n = ring.length;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
     if (!flip) {
-      tris.push({ v1: center, v2: ring[i], v3: ring[j] });
+      mesh.tri(center, ring[i], ring[j]);
     } else {
-      tris.push({ v1: center, v2: ring[j], v3: ring[i] });
+      mesh.tri(center, ring[j], ring[i]);
     }
   }
 }
 
-function addRingFace(tris, outerRing, innerRing, flip = false) {
+function addRingFace(mesh, outerRing, innerRing) {
   const n = outerRing.length;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
-    if (!flip) {
-      tris.push({ v1: outerRing[i], v2: outerRing[j], v3: innerRing[j] });
-      tris.push({ v1: outerRing[i], v2: innerRing[j], v3: innerRing[i] });
-    } else {
-      tris.push({ v1: outerRing[i], v2: innerRing[j], v3: outerRing[j] });
-      tris.push({ v1: outerRing[i], v2: innerRing[i], v3: innerRing[j] });
-    }
+    mesh.tri(outerRing[i], outerRing[j], innerRing[j]);
+    mesh.tri(outerRing[i], innerRing[j], innerRing[i]);
   }
 }
 
-// Flatten tris array to Float32Arrays
-function flattenTris(tris) {
-  const numTris = tris.length;
-  const positions = new Float32Array(numTris * 9);
-  const normals = new Float32Array(numTris * 9);
-
-  for (let i = 0; i < numTris; i++) {
-    const { v1, v2, v3 } = tris[i];
-    const n = triNormal(v1, v2, v3);
-    const idx = i * 9;
-    positions[idx]     = v1[0]; positions[idx + 1] = v1[1]; positions[idx + 2] = v1[2];
-    positions[idx + 3] = v2[0]; positions[idx + 4] = v2[1]; positions[idx + 5] = v2[2];
-    positions[idx + 6] = v3[0]; positions[idx + 7] = v3[1]; positions[idx + 8] = v3[2];
-    for (let j = 0; j < 3; j++) {
-      normals[idx + j * 3]     = n[0];
-      normals[idx + j * 3 + 1] = n[1];
-      normals[idx + j * 3 + 2] = n[2];
-    }
-  }
-
-  return { positions, normals, triangleCount: numTris };
-}
-
 // ---------------------------------------------------------------------------
-// Shared gridfinity base generation (per-unit feet + bridge)
+// Shared gridfinity base generation
+//
+// Each foot is its own closed shell; its top face sits flush against the
+// bottom of the bridge (see addBridge). Slicers merge touching shells, and
+// keeping each shell closed means the mesh has no open or 3-way edges.
+//
+// With `divisions` > 1 each grid unit gets divisions x divisions smaller feet
+// (like kennetek's half_grid), so fractional-width bins still seat in a
+// standard baseplate.
 // ---------------------------------------------------------------------------
 
-function generateBase(tris, gridX, gridY, outerW, outerD, centerOffset, cornerSegments) {
+function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions) {
   const [cox, coy] = centerOffset;
+  const pitch = gridMM / divisions;
+  const footTop = pitch - TOLERANCE_MM;
+  const feetX = Math.max(1, Math.round(gridX * divisions));
+  const feetY = Math.max(1, Math.round(gridY * divisions));
 
-  // Per-unit base feet
-  for (let ix = 0; ix < gridX; ix++) {
-    for (let iy = 0; iy < gridY; iy++) {
-      const cx = cox + (ix - (gridX - 1) / 2) * GRID_MM;
-      const cy = coy + (iy - (gridY - 1) / 2) * GRID_MM;
+  for (let ix = 0; ix < feetX; ix++) {
+    for (let iy = 0; iy < feetY; iy++) {
+      const cx = cox + (ix - (feetX - 1) / 2) * pitch;
+      const cy = coy + (iy - (feetY - 1) / 2) * pitch;
 
       const unitRings = [];
       for (const { dz, inset } of BASE_UNIT_PROFILE_LEVELS) {
         const z = -BASE_HEIGHT_MM + dz;
-        const w = UNIT_BASE_TOP_MM - 2 * inset;
-        const h = UNIT_BASE_TOP_MM - 2 * inset;
+        const w = footTop - 2 * inset;
         const r = Math.max(0.01, BASE_CORNER_RADIUS - inset);
-        unitRings.push(makeRing(z, w, h, r, [cx, cy], cornerSegments));
+        unitRings.push(makeRing(z, w, w, r, [cx, cy], cornerSegments));
       }
 
-      addFan(tris, unitRings[0], [cx, cy, -BASE_HEIGHT_MM], true);
-
+      addFan(mesh, unitRings[0], [cx, cy, -BASE_HEIGHT_MM], true);
       for (let i = 0; i < unitRings.length - 1; i++) {
-        addStrip(tris, unitRings[i], unitRings[i + 1]);
+        addStrip(mesh, unitRings[i], unitRings[i + 1]);
       }
-
-      const topZ = -BASE_HEIGHT_MM + 4.75;
-      addFan(tris, unitRings[unitRings.length - 1], [cx, cy, topZ], false);
+      addFan(mesh, unitRings[unitRings.length - 1], [cx, cy, BRIDGE_Z_BOTTOM], false);
     }
   }
+}
 
-  // Bridge section
-  const bridgeBottom = makeRing(
-    BRIDGE_Z_BOTTOM, outerW, outerD, BASE_CORNER_RADIUS, centerOffset, cornerSegments
-  );
-  addFan(tris, bridgeBottom, [cox, coy, BRIDGE_Z_BOTTOM], true);
+// Bridge: the solid floor slab from z = BRIDGE_Z_BOTTOM up to `topRing` at
+// z = 0 — bottom face plus vertical sides. The caller closes the top by
+// continuing the outer surface up from `topRing`.
+function addBridge(mesh, w, d, center, cornerSegments, topRing) {
+  const bottom = makeRing(BRIDGE_Z_BOTTOM, w, d, BASE_CORNER_RADIUS, center, cornerSegments);
+  addFan(mesh, bottom, [center[0], center[1], BRIDGE_Z_BOTTOM], true);
+  addStrip(mesh, bottom, topRing);
+}
 
-  return bridgeBottom; // caller uses this to connect bridge walls to z=0
+// Height of the bottom-most surface below the interior floor (z = 0): the
+// full base with feet, or just the bridge slab as a flat floor without them.
+function plateShift(includeBase) {
+  return includeBase ? BASE_HEIGHT_MM : -BRIDGE_Z_BOTTOM;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,19 +239,21 @@ function generateBase(tris, gridX, gridY, outerW, outerD, centerOffset, cornerSe
 export function generateSlantedBin({
   gridX = 2,
   gridY = 2,
-  heightUnits = 13,
+  heightUnits = 12,
   offsetUnits = 2,
   offsetAxis = 'x',
   wallThickness = 0.82,
   includeBase = true,
-  cornerSegments = 8,
+  cornerSegments = CORNER_SEGMENTS,
+  gridMM = GRID_MM,
+  divisions = 1,
 } = {}) {
-  const tris = [];
+  const mesh = new MeshBuilder();
 
-  const outerW = binOuterMM(gridX);
-  const outerD = binOuterMM(gridY);
+  const outerW = binOuterMM(gridX, gridMM);
+  const outerD = binOuterMM(gridY, gridMM);
   const wallH = interiorHeightMM(heightUnits);
-  const totalOffset = offsetUnits * GRID_MM;
+  const totalOffset = offsetUnits * gridMM;
   const t = wallThickness;
 
   function getOffset(z) {
@@ -241,7 +266,7 @@ export function generateSlantedBin({
 
   // --- BASE ---
   if (includeBase) {
-    generateBase(tris, gridX, gridY, outerW, outerD, [0, 0], cornerSegments);
+    addFeet(mesh, gridX, gridY, [0, 0], cornerSegments, gridMM, divisions);
   }
 
   // --- WALLS ---
@@ -255,26 +280,18 @@ export function generateSlantedBin({
   const wallInnerBottom = makeRing(0, innerW, innerD, innerR, getOffset(0), cornerSegments);
   const wallInnerTop = makeRing(wallH, innerW, innerD, innerR, getOffset(wallH), cornerSegments);
 
-  // Bridge walls from z=-2.25 to z=0
-  if (includeBase) {
-    const bridgeBottom = makeRing(
-      BRIDGE_Z_BOTTOM, outerW, outerD, BASE_CORNER_RADIUS, [0, 0], cornerSegments
-    );
-    addStrip(tris, bridgeBottom, wallOuterBottom);
-  }
-
-  addStrip(tris, wallOuterBottom, wallOuterTop);
-  addStrip(tris, wallInnerBottom, wallInnerTop, true);
-
-  // Solid floor at z=0
+  // One closed shell: floor slab (z=-2.25 to 0), outer wall, rim, inner
+  // wall, and the interior floor inside the inner wall at z=0
+  addBridge(mesh, outerW, outerD, [0, 0], cornerSegments, wallOuterBottom);
+  addStrip(mesh, wallOuterBottom, wallOuterTop);
+  addRingFace(mesh, wallOuterTop, wallInnerTop);
+  addStrip(mesh, wallInnerBottom, wallInnerTop, true);
   const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
-  addFan(tris, wallOuterBottom, floorCenter, false);
+  addFan(mesh, wallInnerBottom, floorCenter, false);
 
-  // Top rim
-  addRingFace(tris, wallOuterTop, wallInnerTop, false);
-
-  // --- Flatten & dimensions ---
-  const result = flattenTris(tris);
+  // --- Place on the build plate & dimensions ---
+  const floorZ = plateShift(includeBase);
+  const result = mesh.finish(floorZ);
 
   const slantAngleDeg = wallH > 0
     ? Math.atan2(totalOffset, wallH) * (180 / Math.PI) : 0;
@@ -292,14 +309,16 @@ export function generateSlantedBin({
       outerDepth: outerD,
       innerWidth: innerW,
       innerDepth: innerD,
-      totalHeight: BASE_HEIGHT_MM + wallH,
+      totalHeight: floorZ + wallH,
       interiorHeight: wallH,
-      baseHeight: BASE_HEIGHT_MM,
+      baseHeight: floorZ,
+      floorZ,
       totalOffset,
       slantAngleDeg,
       slantDiagonal,
       maxPenLength,
       wallThickness: t,
+      gridMM,
     },
   };
 }
@@ -308,8 +327,8 @@ export function generateSlantedBin({
 // End bin generator — solid wedge that fills the gap under the slanted bin.
 //
 // This is a SOLID volume (not hollow). The slicer handles infill.
-// Surfaces: gridfinity base, solid floor at z=0, vertical outer walls
-// trimmed by the slant plane, and a solid angled top cap.
+// Surfaces: gridfinity base, the bridge slab under z=0, vertical outer
+// walls trimmed by the slant plane, and a solid angled top cap.
 //
 // The slant plane rises from z=0 at the main bin's base edge to z=wallH
 // at the far end of the offset.
@@ -318,24 +337,25 @@ export function generateSlantedBin({
 export function generateEndBin({
   gridX = 2,
   gridY = 2,
-  heightUnits = 13,
+  heightUnits = 12,
   offsetUnits = 2,
   offsetAxis = 'x',
-  wallThickness = 0.82,
   includeBase = true,
-  cornerSegments = 8,
+  cornerSegments = CORNER_SEGMENTS,
   endGridX = 2,
   endGridY = 2,
+  gridMM = GRID_MM,
+  divisions = 1,
 } = {}) {
-  const tris = [];
+  const mesh = new MeshBuilder();
 
-  const mainOuterW = binOuterMM(gridX);
-  const mainOuterD = binOuterMM(gridY);
+  const mainOuterW = binOuterMM(gridX, gridMM);
+  const mainOuterD = binOuterMM(gridY, gridMM);
   const wallH = interiorHeightMM(heightUnits);
-  const totalOffset = offsetUnits * GRID_MM;
+  const totalOffset = offsetUnits * gridMM;
 
-  const endOuterW = binOuterMM(endGridX);
-  const endOuterD = binOuterMM(endGridY);
+  const endOuterW = binOuterMM(endGridX, gridMM);
+  const endOuterD = binOuterMM(endGridY, gridMM);
 
   // Position: end bin is one grid step away from the main bin, with
   // standard gridfinity spacing (TOLERANCE_MM = 0.5mm gap between bins).
@@ -372,7 +392,7 @@ export function generateEndBin({
 
   // --- BASE ---
   if (includeBase) {
-    generateBase(tris, endGridX, endGridY, endOuterW, endOuterD, endCenter, cornerSegments);
+    addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions);
   }
 
   // --- SOLID WEDGE (z=0 to slant plane) ---
@@ -383,21 +403,13 @@ export function generateEndBin({
   );
 
   // Top ring: each vertex projected up to the slant plane
-  const outerTop = outerBottom.map(([x, y]) => [x, y, Math.max(0, slantZ(x, y))]);
+  // (capped at the wall top, where the slant ends, for end bins longer than the offset)
+  const outerTop = outerBottom.map(([x, y]) => [x, y, Math.min(wallH, Math.max(0, slantZ(x, y)))]);
 
-  // Bridge walls from z=-2.25 to z=0
-  if (includeBase) {
-    const bridgeBottom = makeRing(
-      BRIDGE_Z_BOTTOM, endOuterW, endOuterD, BASE_CORNER_RADIUS, endCenter, cornerSegments
-    );
-    addStrip(tris, bridgeBottom, outerBottom);
-  }
-
-  // Outer walls (vertical sides, top edge follows slant)
-  addStrip(tris, outerBottom, outerTop);
-
-  // Solid floor at z=0 (normal +z)
-  addFan(tris, outerBottom, [endCenterX, endCenterY, 0], false);
+  // One closed shell: floor slab (z=-2.25 to 0), outer walls (vertical
+  // sides, top edge follows slant) and the top cap below
+  addBridge(mesh, endOuterW, endOuterD, endCenter, cornerSegments, outerBottom);
+  addStrip(mesh, outerBottom, outerTop);
 
   // Solid angled top cap (normal facing up/outward along slant)
   // Fan from the centroid of the top ring
@@ -405,7 +417,7 @@ export function generateEndBin({
   for (const [x, y, z] of outerTop) { cx += x; cy += y; cz += z; }
   const n = outerTop.length;
   const topCenter = [cx / n, cy / n, cz / n];
-  addFan(tris, outerTop, topCenter, false);
+  addFan(mesh, outerTop, topCenter, false);
 
-  return flattenTris(tris);
+  return mesh.finish(plateShift(includeBase));
 }

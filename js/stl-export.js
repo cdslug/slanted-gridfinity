@@ -2,7 +2,9 @@
  * stl-export.js — Binary STL file generation and download.
  */
 
-export function generateBinarySTL(positions, normals, triangleCount) {
+// `positions` holds 9 floats (three xyz vertices) per triangle, CCW from
+// outside; face normals are computed here since the viewer doesn't store them.
+export function generateBinarySTL(positions, triangleCount = positions.length / 9) {
   const bufferSize = 84 + triangleCount * 50;
   const buffer = new ArrayBuffer(bufferSize);
   const view = new DataView(buffer);
@@ -18,20 +20,20 @@ export function generateBinarySTL(positions, normals, triangleCount) {
 
   let offset = 84;
   for (let i = 0; i < triangleCount; i++) {
-    const ni = i * 9;
     const pi = i * 9;
 
     // Face normal (3x float32 LE)
-    view.setFloat32(offset, normals[ni],     true); offset += 4;
-    view.setFloat32(offset, normals[ni + 1], true); offset += 4;
-    view.setFloat32(offset, normals[ni + 2], true); offset += 4;
+    const ax = positions[pi + 3] - positions[pi], ay = positions[pi + 4] - positions[pi + 1], az = positions[pi + 5] - positions[pi + 2];
+    const bx = positions[pi + 6] - positions[pi], by = positions[pi + 7] - positions[pi + 1], bz = positions[pi + 8] - positions[pi + 2];
+    const nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    view.setFloat32(offset, nx / len, true); offset += 4;
+    view.setFloat32(offset, ny / len, true); offset += 4;
+    view.setFloat32(offset, nz / len, true); offset += 4;
 
     // 3 vertices (9x float32 LE)
-    for (let v = 0; v < 3; v++) {
-      const vi = pi + v * 3;
-      view.setFloat32(offset, positions[vi],     true); offset += 4;
-      view.setFloat32(offset, positions[vi + 1], true); offset += 4;
-      view.setFloat32(offset, positions[vi + 2], true); offset += 4;
+    for (let v = 0; v < 9; v++) {
+      view.setFloat32(offset, positions[pi + v], true); offset += 4;
     }
 
     // Attribute byte count (uint16 LE)

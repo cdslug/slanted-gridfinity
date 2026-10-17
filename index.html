@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Everything loads from this folder. The hashes cover the two inline
+       scripts below (theme bootstrap, import map); update them if either changes. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-sWfR+bLnmVK0tj7CxILhaAQSRgcBEt03i5P6Q98AukQ=' 'sha256-Anj8s0t99oQITwKrN/SJSdLV6721iOb3F61VC2+UkTc='; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Slanted Gridfinity Bin Generator</title>
   <script>
     // Apply the saved theme before first paint; light is the default.
@@ -17,7 +20,7 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "./vendor/three/three.module.js",
+      "three": "./vendor/three/three.module.min.js",
       "three/addons/": "./vendor/three/addons/"
     }
   }
@@ -41,14 +44,32 @@
         <!-- Grid Size -->
         <div class="control-section">
           <h3>Grid Size</h3>
-          <div class="input-row">
-            <div class="control-group">
-              <label for="grid-x">X units</label>
-              <input type="number" id="grid-x" min="1" max="6" step="1" value="2">
+          <div class="param-row">
+            <div class="param-text">
+              <label for="grid-unit-mm">Unit size</label>
+              <div class="value-display">mm per grid unit</div>
             </div>
-            <div class="control-group">
-              <label for="grid-y">Y units</label>
-              <input type="number" id="grid-y" min="1" max="6" step="1" value="2">
+            <input type="number" id="grid-unit-mm" min="20" max="100" step="0.5" value="42">
+          </div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="grid-divisions">Divisions</label>
+              <div class="value-display" id="grid-unit-val"></div>
+            </div>
+            <select id="grid-divisions">
+              <option value="1" selected>Whole</option>
+              <option value="2">Half</option>
+            </select>
+          </div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="grid-x">Bin size</label>
+              <div class="value-display">X × Y units</div>
+            </div>
+            <div class="param-pair">
+              <input type="number" id="grid-x" min="1" max="6" step="1" value="2" aria-label="X units">
+              <span class="param-sep">×</span>
+              <input type="number" id="grid-y" min="1" max="6" step="1" value="2" aria-label="Y units">
             </div>
           </div>
         </div>
@@ -56,27 +77,34 @@
         <!-- Height -->
         <div class="control-section">
           <h3>Height</h3>
-          <div class="control-group">
-            <label for="height-units">Height units</label>
-            <input type="number" id="height-units" min="1" max="14" step="1" value="13">
-            <div class="value-display" id="height-units-val"></div>
-            <div class="value-display" id="diagonal-val"></div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="height-units">Height units</label>
+              <div class="value-display" id="height-units-val"></div>
+              <div class="value-display" id="diagonal-val"></div>
+            </div>
+            <input type="number" id="height-units" min="1" max="14" step="1" value="12">
           </div>
         </div>
 
         <!-- Slant / Offset -->
         <div class="control-section">
           <h3>Slant Offset</h3>
-          <div class="control-group">
-            <label for="offset-units">Offset (grid units)</label>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="offset-units">Offset</label>
+              <div class="value-display" id="offset-units-val"></div>
+            </div>
             <input type="number" id="offset-units" min="0" max="8" step="0.5" value="2">
-            <div class="value-display" id="offset-units-val"></div>
           </div>
-          <div class="control-group">
-            <label>Offset axis</label>
-            <div class="radio-group">
-              <label><input type="radio" name="offset-axis" value="x" checked> X axis</label>
-              <label><input type="radio" name="offset-axis" value="y"> Y axis</label>
+          <div class="param-row">
+            <div class="param-text">
+              <label id="offset-axis-label">Offset axis</label>
+              <div class="value-display">direction of slant</div>
+            </div>
+            <div class="radio-group param-radios" role="radiogroup" aria-labelledby="offset-axis-label">
+              <label><input type="radio" name="offset-axis" value="x" checked> X</label>
+              <label><input type="radio" name="offset-axis" value="y"> Y</label>
             </div>
           </div>
         </div>
@@ -88,10 +116,6 @@
             <label for="wall-thickness">Wall thickness (mm)</label>
             <input type="range" id="wall-thickness" min="0.40" max="2.00" step="0.01" value="0.82">
             <div class="value-display" id="wall-thickness-val"></div>
-          </div>
-          <div class="control-group">
-            <label for="corner-segments">Corner resolution</label>
-            <input type="range" id="corner-segments" min="1" max="16" step="1" value="8">
           </div>
         </div>
 
@@ -107,45 +131,35 @@
         <!-- End Bin -->
         <div class="control-section">
           <h3>End Bin</h3>
-          <div class="checkbox-group">
-            <input type="checkbox" id="end-bin-enabled">
-            <label for="end-bin-enabled">Generate end bin (support wedge)</label>
-          </div>
-          <div id="end-bin-controls" style="display: none; margin-top: 8px;">
+          <div id="end-bin-controls">
             <div class="input-row">
               <div class="control-group">
                 <label for="end-grid-x">X units</label>
-                <input type="number" id="end-grid-x" min="1" max="6" step="1" value="2">
+                <input type="number" id="end-grid-x" min="1" max="8" step="1" value="2">
               </div>
               <div class="control-group">
                 <label for="end-grid-y">Y units</label>
-                <input type="number" id="end-grid-y" min="1" max="6" step="1" value="2">
+                <input type="number" id="end-grid-y" min="1" max="8" step="1" value="2">
               </div>
             </div>
             <div class="value-display" id="end-bin-info"></div>
           </div>
         </div>
 
-        <!-- Visualization -->
-        <div class="control-section">
-          <h3>Visualization</h3>
-          <div class="checkbox-group">
-            <input type="checkbox" id="show-wireframe">
-            <label for="show-wireframe">Show wireframe</label>
-          </div>
-          <div class="checkbox-group" style="margin-top: 6px;">
-            <input type="checkbox" id="show-cross-section">
-            <label for="show-cross-section">Show cross-section plane</label>
-          </div>
-          <div class="cross-section-row" id="cross-section-controls">
-            <input type="range" id="cross-section-z" min="0" max="100" step="1" value="50">
-            <span class="cs-label">Z = <span id="cross-section-z-val">0</span>mm</span>
-          </div>
-        </div>
+        <a class="source-link source-link-body" href="https://github.com/cdslug/slanted-gridfinity" target="_blank" rel="noopener">github.com/cdslug/slanted-gridfinity</a>
 
       </div>
 
       <div class="sidebar-footer">
+        <h3>Downloads</h3>
+        <div class="checkbox-group">
+          <input type="checkbox" id="download-bin" checked>
+          <label for="download-bin">Slanted bin</label>
+        </div>
+        <div class="checkbox-group" id="download-end-bin-row">
+          <input type="checkbox" id="download-end-bin" checked>
+          <label for="download-end-bin">End bin (support wedge)</label>
+        </div>
         <button class="btn btn-primary btn-full" id="export-stl">Export STL</button>
         <a class="source-link" href="https://github.com/cdslug/slanted-gridfinity" target="_blank" rel="noopener">github.com/cdslug/slanted-gridfinity</a>
       </div>
@@ -155,45 +169,13 @@
     <main class="viewport">
       <canvas id="three-canvas"></canvas>
 
+      <!-- Model visibility (click) / opacity (drag) chips -->
+      <div class="model-toggles" id="model-toggles"></div>
+
       <!-- Dimensions overlay -->
-      <div class="info-overlay">
-        <h4>Dimensions</h4>
+      <div class="info-overlay" id="info-overlay">
+        <h4><button class="info-toggle" id="dim-toggle" type="button" aria-expanded="false">Dimensions<span class="info-caret" aria-hidden="true">▾</span></button></h4>
         <div id="dim-info"></div>
-      </div>
-
-      <!-- Navigation help -->
-      <div class="nav-help hidden" id="nav-help">
-        <h4>Mouse</h4>
-        <div class="help-row"><span>Orbit</span><span>Left drag</span></div>
-        <div class="help-row"><span>Pan</span><span>Right / middle drag, Shift + left drag</span></div>
-        <div class="help-row"><span>Zoom</span><span>Scroll wheel</span></div>
-        <h4>Trackpad (set Input: Trackpad)</h4>
-        <div class="help-row"><span>Orbit</span><span>Two-finger scroll, or click-drag</span></div>
-        <div class="help-row"><span>Pan</span><span>Shift + two-finger scroll, or two-finger click-drag</span></div>
-        <div class="help-row"><span>Zoom</span><span>Pinch</span></div>
-        <h4>Keys</h4>
-        <div class="help-row"><span>Views</span><span>1 Front · 2 Back · 3 Right · 4 Left · 5 Top · 6 Bottom · 0 Iso</span></div>
-        <div class="help-row"><span>Fit model</span><span>F</span></div>
-      </div>
-
-      <!-- Bottom toolbar -->
-      <div class="viewport-toolbar">
-        <button class="btn btn-sm" data-view="iso" title="Isometric (0)">Iso</button>
-        <button class="btn btn-sm" data-view="front" title="Front (1)">Front</button>
-        <button class="btn btn-sm" data-view="back" title="Back (2)">Back</button>
-        <button class="btn btn-sm" data-view="right" title="Right (3)">Right</button>
-        <button class="btn btn-sm" data-view="left" title="Left (4)">Left</button>
-        <button class="btn btn-sm" data-view="top" title="Top (5)">Top</button>
-        <button class="btn btn-sm" data-view="bottom" title="Bottom (6)">Bottom</button>
-        <span class="toolbar-sep"></span>
-        <button class="btn btn-sm" id="fit-view" title="Fit model (F)">Fit</button>
-        <span class="toolbar-sep"></span>
-        <select class="toolbar-select" id="input-mode" title="How scroll gestures are interpreted">
-          <option value="mouse">Input: Mouse</option>
-          <option value="trackpad">Input: Trackpad</option>
-          <option value="auto">Input: Auto-detect</option>
-        </select>
-        <button class="btn btn-sm" id="toggle-help" title="Navigation controls">?</button>
       </div>
     </main>
 

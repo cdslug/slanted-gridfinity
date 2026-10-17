@@ -6,7 +6,7 @@
  *   Colors: Form Fit Print "Filament" palette, light (default) or dark
  *           (SCENE_PALETTES below; theme set on <html data-theme>)
  *   Ambient 1.0, directional 1.8 + fill 0.7
- *   Grid on XY plane, 42mm section lines
+ *   Grid on XY plane, section lines at the grid unit (42mm by default)
  */
 
 import * as THREE from 'three';
@@ -19,6 +19,7 @@ import {
 } from './gridfinity-geometry.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
+import { createModelToggleButton } from './model-toggle-button.js';
 
 // ---------------------------------------------------------------------------
 // Scene colors — mirrors form-fit-print/frontend/src/theme/palette.js
@@ -30,18 +31,18 @@ const SCENE_PALETTES = {
     gridCell:     '#ddd3c2',
     gridSection:  '#cbbfa8',
     bin:          '#f5c242',  // brand gold; palette's deeper #cf9a10 shades to brown here
-    endBin:       '#4f8a3c',  // mesh.sweep (green)
-    wireframe:    '#7d7160',  // textMuted
-    crossSection: '#bd6f12',  // warn
+    endBin:       '#e08a2e',  // mesh.target orange; deeper #bd6f12 shades to brown here
+    binChip:      '#cf9a10',  // mesh.result — legible chip text on cream
+    endBinChip:   '#bd6f12',  // light mesh.target — legible chip text on cream
   },
   dark: {
     viewerBg:     '#0f0d0b',
     gridCell:     '#2e2a24',
     gridSection:  '#3a352d',
     bin:          '#f5c242',  // mesh.result (brand gold)
-    endBin:       '#6aa84f',  // mesh.sweep (green)
-    wireframe:    '#9a8f7e',  // textMuted
-    crossSection: '#e08a2e',  // warn (orange, distinct from gold)
+    endBin:       '#e08a2e',  // mesh.target (orange)
+    binChip:      '#f5c242',
+    endBinChip:   '#e08a2e',
   },
 };
 
@@ -59,7 +60,8 @@ let sceneColors = SCENE_PALETTES[currentTheme()];
 
 const canvas = document.getElementById('three-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// Past 2x the extra pixels cost GPU time without a visible difference.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
 const scene = new THREE.Scene();
@@ -79,7 +81,9 @@ const cameraNav = setupCameraControls({
   controls,
   canvas,
   getFrameObjects: () => [binMesh, endBinMesh],
+  requestRender,
 });
+controls.addEventListener('change', requestRender);
 
 // ---------------------------------------------------------------------------
 // Lighting (three.js r155+ physical intensities, so brighter than legacy values)
@@ -96,10 +100,10 @@ fillLight.position.set(-30, 30, -20);
 scene.add(fillLight);
 
 // ---------------------------------------------------------------------------
-// Grid helper (XY plane, Z-up) — 42mm section lines for gridfinity units
+// Grid helper (XY plane, Z-up) — section lines at the gridfinity unit pitch
 // ---------------------------------------------------------------------------
 
-function createGrid() {
+function createGrid(gridMM = GRID_MM) {
   const group = new THREE.Group();
 
   // Fine grid: 5mm cells over 250mm
@@ -108,8 +112,8 @@ function createGrid() {
   fineGrid.position.z = -0.02;
   group.add(fineGrid);
 
-  // Section grid: 42mm (1 gridfinity unit) over 252mm (6 units)
-  const sectionGrid = new THREE.GridHelper(252, 6, sceneColors.gridSection, sceneColors.gridSection);
+  // Section grid: 1 gridfinity unit per cell, 6 units across
+  const sectionGrid = new THREE.GridHelper(gridMM * 6, 6, sceneColors.gridSection, sceneColors.gridSection);
   sectionGrid.rotation.x = Math.PI / 2;
   sectionGrid.position.z = -0.01;
   group.add(sectionGrid);
@@ -118,7 +122,16 @@ function createGrid() {
 }
 
 let grid = createGrid();
+let gridUnitMM = GRID_MM;
 scene.add(grid);
+
+function rebuildGrid() {
+  scene.remove(grid);
+  grid.traverse((obj) => { obj.geometry?.dispose(); obj.material?.dispose(); });
+  grid = createGrid(gridUnitMM);
+  scene.add(grid);
+  requestRender();
+}
 
 // Axes helper (small, at origin)
 const axes = new THREE.AxesHelper(15);
@@ -128,130 +141,150 @@ scene.add(axes);
 // Bin mesh
 // ---------------------------------------------------------------------------
 
+// Meshes are closed and outward-facing (see gridfinity-geometry.js), so the
+// default FrontSide is enough: back faces are culled instead of drawn.
 let binMesh = null;
-let binWireframe = null;
 let endBinMesh = null;
-let endBinWireframe = null;
-let currentGeomResult = null;
-let currentEndBinResult = null;
+// Parameters each mesh was last built from, to skip rebuilds that can't change it
+let binKey = null;
+let endBinKey = null;
 
 const binMaterial = new THREE.MeshStandardMaterial({
   color: sceneColors.bin,
   metalness: 0.1,
   roughness: 0.6,
-  side: THREE.DoubleSide,
-  transparent: true,
-  opacity: 0.85,
+  flatShading: true,  // face normals from screen-space derivatives; none stored
 });
 
 const endBinMaterial = new THREE.MeshStandardMaterial({
   color: sceneColors.endBin,
   metalness: 0.1,
   roughness: 0.6,
-  side: THREE.DoubleSide,
-  transparent: true,
-  opacity: 0.85,
+  flatShading: true,  // face normals from screen-space derivatives; none stored
 });
 
-const wireframeMaterial = new THREE.LineBasicMaterial({
-  color: sceneColors.wireframe,
-  transparent: true,
-  opacity: 0.3,
-});
+// Viewer visibility/opacity per model, driven by the chips at the top of the viewport.
+const modelView = {
+  bin:    { label: 'Slanted bin', visible: true, opacity: 1, material: binMaterial,    mesh: () => binMesh },
+  endBin: { label: 'End bin',     visible: true, opacity: 1, material: endBinMaterial, mesh: () => endBinMesh },
+};
+
+// Same material rules as form-fit-print's StlModel.
+function applyModelView(key) {
+  const view = modelView[key];
+  const { material } = view;
+  const transparent = view.opacity < 1;
+  if (material.transparent !== transparent) {
+    // Switches shader variant; opacity and depthWrite alone don't need it
+    material.transparent = transparent;
+    material.needsUpdate = true;
+  }
+  material.opacity = view.opacity;
+  material.depthWrite = view.opacity >= 0.9;
+  const mesh = view.mesh();
+  if (mesh) mesh.visible = view.visible;
+  view.chip?.update({ active: view.visible, opacity: view.opacity });
+  requestRender();
+}
+
+function createModelToggles() {
+  const container = document.getElementById('model-toggles');
+  for (const key of Object.keys(modelView)) {
+    const view = modelView[key];
+    view.chip = createModelToggleButton({
+      label: view.label,
+      active: view.visible,
+      color: sceneColors[`${key}Chip`],
+      opacity: view.opacity,
+      onToggle: () => { view.visible = !view.visible; applyModelView(key); },
+      onOpacityChange: (opacity) => { view.opacity = opacity; applyModelView(key); },
+    });
+    container.appendChild(view.chip.el);
+    applyModelView(key);
+  }
+}
+
+// Put `positions` into `mesh` (created on first use). Same-size updates — a
+// wall-thickness change never alters the triangle count — overwrite the
+// existing GPU buffer instead of allocating a new one.
+function setMeshPositions(mesh, positions, material) {
+  if (!mesh) {
+    mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+    scene.add(mesh);
+  }
+  const old = mesh.geometry;
+  const attr = old.getAttribute('position');
+  if (attr && attr.array.length === positions.length) {
+    attr.array.set(positions);
+    attr.needsUpdate = true;
+  } else {
+    mesh.geometry = new THREE.BufferGeometry();
+    mesh.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    old.dispose();
+  }
+  mesh.geometry.computeBoundingSphere();
+  mesh.geometry.boundingBox = null;
+  return mesh;
+}
 
 function updateBinMesh() {
-  // Remove old meshes
-  if (binMesh) { scene.remove(binMesh); binMesh.geometry.dispose(); }
-  if (binWireframe) { scene.remove(binWireframe); binWireframe.geometry.dispose(); }
-  if (endBinMesh) { scene.remove(endBinMesh); endBinMesh.geometry.dispose(); endBinMesh = null; }
-  if (endBinWireframe) { scene.remove(endBinWireframe); endBinWireframe.geometry.dispose(); endBinWireframe = null; }
-
   const params = readParams();
-  const result = generateSlantedBin(params);
-  currentGeomResult = result;
-  currentEndBinResult = null;
 
-  // Main bin mesh
-  const geom = new THREE.BufferGeometry();
-  geom.setAttribute('position', new THREE.BufferAttribute(result.positions, 3));
-  geom.setAttribute('normal', new THREE.BufferAttribute(result.normals, 3));
-  binMesh = new THREE.Mesh(geom, binMaterial);
-  scene.add(binMesh);
-
-  // End bin (if enabled)
-  if (params.endBinEnabled && params.offsetUnits > 0) {
-    const endResult = generateEndBin({
-      ...params,
-      endGridX: params.endGridX,
-      endGridY: params.endGridY,
-    });
-    currentEndBinResult = endResult;
-
-    const endGeom = new THREE.BufferGeometry();
-    endGeom.setAttribute('position', new THREE.BufferAttribute(endResult.positions, 3));
-    endGeom.setAttribute('normal', new THREE.BufferAttribute(endResult.normals, 3));
-    endBinMesh = new THREE.Mesh(endGeom, endBinMaterial);
-    scene.add(endBinMesh);
+  // Main bin — doesn't depend on the end bin's size
+  const { endGridX, endGridY, ...binParams } = params;
+  const key = JSON.stringify(binParams);
+  if (key !== binKey) {
+    binKey = key;
+    const result = generateSlantedBin(binParams);
+    binMesh = setMeshPositions(binMesh, result.positions, binMaterial);
+    binMesh.visible = modelView.bin.visible;
+    updateDimensionInfo(result.dimensions);
   }
 
-  // Wireframe overlays
-  if (document.getElementById('show-wireframe').checked) {
-    const wireGeom = new THREE.WireframeGeometry(geom);
-    binWireframe = new THREE.LineSegments(wireGeom, wireframeMaterial);
-    scene.add(binWireframe);
-
-    if (endBinMesh) {
-      const endWireGeom = new THREE.WireframeGeometry(endBinMesh.geometry);
-      endBinWireframe = new THREE.LineSegments(endWireGeom, wireframeMaterial);
-      scene.add(endBinWireframe);
+  // End bin — only exists when the bin is slanted; it doesn't depend on wall thickness
+  const { wallThickness, ...endParams } = params;
+  const endKey = params.offsetUnits > 0 ? JSON.stringify(endParams) : null;
+  if (endKey !== endBinKey) {
+    endBinKey = endKey;
+    if (endKey) {
+      endBinMesh = setMeshPositions(endBinMesh, generateEndBin(endParams).positions, endBinMaterial);
+      endBinMesh.visible = modelView.endBin.visible;
+    } else if (endBinMesh) {
+      scene.remove(endBinMesh);
+      endBinMesh.geometry.dispose();
+      endBinMesh = null;
     }
   }
 
-  // Update dimension readouts
-  updateDimensionInfo(result.dimensions);
+  // With no slant there is no end bin: hide its chip and download option
+  const hasEndBin = Boolean(endBinMesh);
+  if (modelView.endBin.chip) modelView.endBin.chip.el.style.display = hasEndBin ? '' : 'none';
+  document.getElementById('download-end-bin').disabled = !hasEndBin;
+  document.getElementById('download-end-bin-row').classList.toggle('disabled', !hasEndBin);
+  updateExportButton();
 }
 
-// ---------------------------------------------------------------------------
-// Cross-section plane indicator
-// ---------------------------------------------------------------------------
+// Inputs can fire many times per frame (slider drags); rebuild at most once
+// per frame, just before rendering.
+let rebuildPending = false;
 
-let crossSectionPlane = null;
+function scheduleRebuild() {
+  rebuildPending = true;
+  requestRender();
+}
 
-function updateCrossSectionPlane() {
-  if (crossSectionPlane) {
-    scene.remove(crossSectionPlane);
-    crossSectionPlane.geometry.dispose();
-  }
+function flushRebuild() {
+  if (!rebuildPending) return;
+  rebuildPending = false;
+  updateBinMesh();
+}
 
-  if (!document.getElementById('show-cross-section').checked || !currentGeomResult) return;
-
-  const zSlider = document.getElementById('cross-section-z');
-  const d = currentGeomResult.dimensions;
-  const zFrac = parseFloat(zSlider.value) / 100;
-  const z = zFrac * d.interiorHeight;
-
-  // Show the XY cross-section plane
-  const planeSize = Math.max(d.outerWidth, d.outerDepth) + d.totalOffset + 20;
-  const planeGeom = new THREE.PlaneGeometry(planeSize, planeSize);
-  const planeMat = new THREE.MeshBasicMaterial({
-    color: sceneColors.crossSection,
-    transparent: true,
-    opacity: 0.15,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
-
-  crossSectionPlane = new THREE.Mesh(planeGeom, planeMat);
-  // Offset plane center to follow the slant
-  const params = readParams();
-  const frac = d.interiorHeight > 0 ? z / d.interiorHeight : 0;
-  const ox = params.offsetAxis === 'x' ? frac * d.totalOffset : 0;
-  const oy = params.offsetAxis === 'y' ? frac * d.totalOffset : 0;
-  crossSectionPlane.position.set(ox, oy, z);
-  scene.add(crossSectionPlane);
-
-  // Update Z label
-  document.getElementById('cross-section-z-val').textContent = z.toFixed(1);
+// Export is possible when at least one available model is selected
+function updateExportButton() {
+  const bin = document.getElementById('download-bin');
+  const end = document.getElementById('download-end-bin');
+  document.getElementById('export-stl').disabled =
+    !bin.checked && !(end.checked && !end.disabled);
 }
 
 // ---------------------------------------------------------------------------
@@ -264,15 +297,13 @@ function setTheme(theme) {
   sceneColors = SCENE_PALETTES[theme];
 
   scene.background.set(sceneColors.viewerBg);
-  scene.remove(grid);
-  grid.traverse((obj) => { obj.geometry?.dispose(); obj.material?.dispose(); });
-  grid = createGrid();
-  scene.add(grid);
+  rebuildGrid();
 
   binMaterial.color.set(sceneColors.bin);
   endBinMaterial.color.set(sceneColors.endBin);
-  wireframeMaterial.color.set(sceneColors.wireframe);
-  crossSectionPlane?.material.color.set(sceneColors.crossSection);
+  for (const key of Object.keys(modelView)) {
+    modelView[key].chip?.update({ color: sceneColors[`${key}Chip`] });
+  }
 
   updateThemeToggle();
 }
@@ -288,19 +319,72 @@ function updateThemeToggle() {
 // UI parameter reading
 // ---------------------------------------------------------------------------
 
+// Size inputs that count grid units; fractional when divisions > 1.
+const UNIT_INPUT_IDS = ['grid-x', 'grid-y', 'end-grid-x', 'end-grid-y'];
+
+function readGridMM() {
+  const v = parseFloat(document.getElementById('grid-unit-mm').value);
+  return v >= 20 && v <= 100 ? v : GRID_MM;
+}
+
+function readDivisions() {
+  return parseInt(document.getElementById('grid-divisions').value) || 1;
+}
+
+// Browsers don't enforce min/max on typed values, so clamp to the input's own
+// bounds; an unbounded size can generate enough geometry to hang the tab.
+function readNumber(id, fallback, parse = parseFloat) {
+  const el = document.getElementById(id);
+  const v = parse(el.value);
+  if (!Number.isFinite(v)) return fallback;
+  return Math.min(Number(el.max), Math.max(Number(el.min), v));
+}
+
+// Read a grid-unit input, snapped to the nearest allowed division.
+function readUnits(id, divisions = readDivisions()) {
+  const v = parseFloat(document.getElementById(id).value);
+  if (!(v > 0)) return 2;
+  const max = Number(document.getElementById(id).max);
+  return Math.min(max, Math.max(1 / divisions, Math.round(v * divisions) / divisions));
+}
+
+// Match the size inputs' step/min to the division setting and snap their values.
+function applyDivisions() {
+  const divisions = readDivisions();
+  for (const id of UNIT_INPUT_IDS) {
+    const el = document.getElementById(id);
+    const snapped = readUnits(id, divisions);
+    el.step = el.min = String(1 / divisions);
+    el.value = String(snapped);
+  }
+}
+
+// The end bin spans the slant, so its length along the offset axis tracks
+// the offset (rounded down to the division step); the cross axis stays free.
+function syncEndBinToOffset() {
+  const divisions = readDivisions();
+  const offset = readNumber('offset-units', 0);
+  if (!(offset > 0)) return;
+  const axis = document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
+  // Round down so a fractional offset never makes the end bin overshoot the slant
+  const units = Math.max(1 / divisions, Math.floor(offset * divisions + 1e-9) / divisions);
+  document.getElementById(axis === 'x' ? 'end-grid-x' : 'end-grid-y').value = String(units);
+}
+
 function readParams() {
+  const divisions = readDivisions();
   return {
-    gridX: parseInt(document.getElementById('grid-x').value) || 2,
-    gridY: parseInt(document.getElementById('grid-y').value) || 2,
-    heightUnits: parseInt(document.getElementById('height-units').value) || 13,
-    offsetUnits: parseFloat(document.getElementById('offset-units').value) || 0,
+    gridMM: readGridMM(),
+    divisions,
+    gridX: readUnits('grid-x', divisions),
+    gridY: readUnits('grid-y', divisions),
+    heightUnits: readNumber('height-units', 12, parseInt),
+    offsetUnits: readNumber('offset-units', 0),
     offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value || 'x',
-    wallThickness: parseFloat(document.getElementById('wall-thickness').value) || 0.82,
+    wallThickness: readNumber('wall-thickness', 0.82),
     includeBase: document.getElementById('include-base').checked,
-    cornerSegments: parseInt(document.getElementById('corner-segments').value) || 8,
-    endBinEnabled: document.getElementById('end-bin-enabled').checked,
-    endGridX: parseInt(document.getElementById('end-grid-x').value) || 2,
-    endGridY: parseInt(document.getElementById('end-grid-y').value) || 2,
+    endGridX: readUnits('end-grid-x', divisions),
+    endGridY: readUnits('end-grid-y', divisions),
   };
 }
 
@@ -309,19 +393,28 @@ function readParams() {
 // ---------------------------------------------------------------------------
 
 function updateDimensionInfo(dims) {
-  const el = document.getElementById('dim-info');
-  el.innerHTML = `
-    <div class="dim-row"><span>Outer footprint</span><span>${dims.outerWidth.toFixed(1)} x ${dims.outerDepth.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Interior</span><span>${dims.innerWidth.toFixed(1)} x ${dims.innerDepth.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Total height</span><span>${dims.totalHeight.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Interior height</span><span>${dims.interiorHeight.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Base height</span><span>${dims.baseHeight.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Total offset</span><span>${dims.totalOffset.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Slant angle</span><span>${dims.slantAngleDeg.toFixed(1)}&deg; from vertical</span></div>
-    <div class="dim-row"><span>Slant diagonal</span><span>${dims.slantDiagonal.toFixed(1)} mm</span></div>
-    <div class="dim-row highlight"><span>Max pen length</span><span>${dims.maxPenLength.toFixed(1)} mm</span></div>
-    <div class="dim-row"><span>Wall thickness</span><span>${dims.wallThickness.toFixed(2)} mm</span></div>
-  `;
+  const rows = [
+    ['Outer footprint', `${dims.outerWidth.toFixed(1)} x ${dims.outerDepth.toFixed(1)} mm`],
+    ['Interior', `${dims.innerWidth.toFixed(1)} x ${dims.innerDepth.toFixed(1)} mm`],
+    ['Total height', `${dims.totalHeight.toFixed(1)} mm`],
+    ['Interior height', `${dims.interiorHeight.toFixed(1)} mm`],
+    ['Base height', `${dims.baseHeight.toFixed(1)} mm`],
+    ['Total offset', `${dims.totalOffset.toFixed(1)} mm`],
+    ['Slant angle', `${dims.slantAngleDeg.toFixed(1)}° from vertical`],
+    ['Slant diagonal', `${dims.slantDiagonal.toFixed(1)} mm`],
+    ['Max pen length', `${dims.maxPenLength.toFixed(1)} mm`, 'highlight'],
+    ['Wall thickness', `${dims.wallThickness.toFixed(2)} mm`],
+  ];
+  document.getElementById('dim-info').replaceChildren(...rows.map(([label, value, extra]) => {
+    const row = document.createElement('div');
+    row.className = extra ? `dim-row ${extra}` : 'dim-row';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const val = document.createElement('span');
+    val.textContent = value;
+    row.append(name, val);
+    return row;
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -335,113 +428,114 @@ function bindControls() {
   updateThemeToggle();
 
   const controlIds = [
-    'grid-x', 'grid-y', 'height-units', 'offset-units',
-    'wall-thickness', 'include-base', 'corner-segments',
+    'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units',
+    'wall-thickness', 'include-base',
     'end-grid-x', 'end-grid-y',
   ];
 
   for (const id of controlIds) {
     const el = document.getElementById(id);
     el.addEventListener('input', () => {
+      if (id === 'offset-units') syncEndBinToOffset();
       updateValueDisplays();
-      updateBinMesh();
-      updateCrossSectionPlane();
+      scheduleRebuild();
     });
   }
+
+  // Snap a typed size like 1.3 to the nearest allowed step once it's committed
+  for (const id of UNIT_INPUT_IDS) {
+    document.getElementById(id).addEventListener('change', applyDivisions);
+  }
+
+  // Unit size moves the scene's section lines too
+  document.getElementById('grid-unit-mm').addEventListener('input', () => {
+    const unit = readGridMM();
+    if (unit !== gridUnitMM) {
+      gridUnitMM = unit;
+      rebuildGrid();
+    }
+  });
+
+  document.getElementById('grid-divisions').addEventListener('change', () => {
+    applyDivisions();
+    syncEndBinToOffset();
+    updateValueDisplays();
+    scheduleRebuild();
+  });
 
   // Radio buttons
   for (const radio of document.querySelectorAll('input[name="offset-axis"]')) {
     radio.addEventListener('change', () => {
-      updateBinMesh();
-      updateCrossSectionPlane();
+      syncEndBinToOffset();
+      scheduleRebuild();
     });
   }
 
-  // End bin toggle
-  document.getElementById('end-bin-enabled').addEventListener('change', () => {
-    const panel = document.getElementById('end-bin-controls');
-    panel.style.display = document.getElementById('end-bin-enabled').checked ? 'block' : 'none';
-    updateBinMesh();
-    updateCrossSectionPlane();
-  });
+  // Downloads: choose which models Export STL saves
+  for (const id of ['download-bin', 'download-end-bin']) {
+    document.getElementById(id).addEventListener('change', updateExportButton);
+  }
 
-  // Wireframe toggle
-  document.getElementById('show-wireframe').addEventListener('change', () => {
-    updateBinMesh();
-  });
-
-  // Cross-section toggle and slider
-  document.getElementById('show-cross-section').addEventListener('change', () => {
-    const panel = document.getElementById('cross-section-controls');
-    panel.style.display = document.getElementById('show-cross-section').checked ? 'flex' : 'none';
-    updateCrossSectionPlane();
-  });
-
-  document.getElementById('cross-section-z').addEventListener('input', () => {
-    updateCrossSectionPlane();
-  });
-
-  // Export STL — saves separate files for main bin and end bin
+  // Export STL — saves a separate file for each selected model
   document.getElementById('export-stl').addEventListener('click', () => {
-    if (!currentGeomResult) return;
+    flushRebuild();
+    if (!binMesh) return;
+    const wantBin = document.getElementById('download-bin').checked;
+    const wantEndBin = document.getElementById('download-end-bin').checked;
     const params = readParams();
-    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${params.offsetAxis}`;
+    const unitTag = params.gridMM !== GRID_MM ? `_unit${params.gridMM}mm` : '';
+    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${params.offsetAxis}${unitTag}`;
 
     // Main bin
-    const mainBuf = generateBinarySTL(
-      currentGeomResult.positions, currentGeomResult.normals, currentGeomResult.triangleCount
-    );
-    downloadSTL(mainBuf, `${base}_bin.stl`);
+    if (wantBin) {
+      downloadSTL(generateBinarySTL(binMesh.geometry.attributes.position.array), `${base}_bin.stl`);
+    }
 
     // End bin (separate file)
-    if (currentEndBinResult) {
-      const endBuf = generateBinarySTL(
-        currentEndBinResult.positions, currentEndBinResult.normals, currentEndBinResult.triangleCount
+    if (wantEndBin && endBinMesh) {
+      downloadSTL(
+        generateBinarySTL(endBinMesh.geometry.attributes.position.array), `${base}_support-wedge.stl`
       );
-      downloadSTL(endBuf, `${base}_support-wedge.stl`);
     }
   });
 
-  // Standard views
-  for (const btn of document.querySelectorAll('[data-view]')) {
-    btn.addEventListener('click', () => cameraNav.setView(btn.dataset.view));
-  }
-  document.getElementById('fit-view').addEventListener('click', () => cameraNav.fit());
-
-  // Wheel/trackpad interpretation
-  const inputModeSelect = document.getElementById('input-mode');
-  inputModeSelect.value = cameraNav.inputMode;
-  inputModeSelect.addEventListener('change', (e) => {
-    cameraNav.setInputMode(e.target.value);
-  });
-
-  // Controls help
-  document.getElementById('toggle-help').addEventListener('click', () => {
-    document.getElementById('nav-help').classList.toggle('hidden');
+  // Dimensions overlay: on phones it shows only the max pen length until
+  // tapped open (the toggle is inert on desktop, where every row shows).
+  document.getElementById('dim-toggle').addEventListener('click', (e) => {
+    const expanded = document.getElementById('info-overlay').classList.toggle('expanded');
+    e.currentTarget.setAttribute('aria-expanded', String(expanded));
   });
 }
 
 function updateValueDisplays() {
+  const unit = readGridMM();
+  const divisions = readDivisions();
+
+  // Grid unit
+  document.getElementById('grid-unit-val').textContent = divisions > 1
+    ? `${1 / divisions}u steps, ${(unit / divisions).toFixed(1)}mm feet`
+    : `1u = ${unit}mm${unit === GRID_MM ? ' (standard)' : ''}`;
+
   // Height
-  const hu = parseInt(document.getElementById('height-units').value) || 1;
+  const hu = readNumber('height-units', 1, parseInt);
   document.getElementById('height-units-val').textContent =
-    `${hu}u = ${(hu * HEIGHT_UNIT_MM).toFixed(0)}mm total, ${interiorHeightMM(hu).toFixed(0)}mm interior`;
+    `${(hu * HEIGHT_UNIT_MM).toFixed(0)}mm total, ${interiorHeightMM(hu).toFixed(0)}mm inside`;
 
   // Offset
-  const ou = parseFloat(document.getElementById('offset-units').value) || 0;
+  const ou = readNumber('offset-units', 0);
   document.getElementById('offset-units-val').textContent =
-    `${ou}u = ${(ou * GRID_MM).toFixed(0)}mm`;
+    `grid units, ${(ou * unit).toFixed(0)}mm`;
 
   // Max pen length: 3D diagonal from one bottom interior corner to the
   // opposite top interior corner.  Uses interior dimensions (innerW/innerD)
   // so the measurement reflects the actual space a pen can occupy.
-  const wt = parseFloat(document.getElementById('wall-thickness').value) || 0.82;
-  const gx = parseInt(document.getElementById('grid-x').value) || 2;
-  const gy = parseInt(document.getElementById('grid-y').value) || 2;
+  const wt = readNumber('wall-thickness', 0.82);
+  const gx = readUnits('grid-x', divisions);
+  const gy = readUnits('grid-y', divisions);
   const intH = interiorHeightMM(hu);
-  const totalOff = ou * GRID_MM;
-  const intW = interiorWidthMM(gx, wt);
-  const intD = interiorWidthMM(gy, wt);
+  const totalOff = ou * unit;
+  const intW = interiorWidthMM(gx, wt, unit);
+  const intD = interiorWidthMM(gy, wt, unit);
   const axis = document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
   // Pen spans from bottom near-corner to top far-corner of interior
   const spanOffset = totalOff + (axis === 'x' ? intW : intD);
@@ -463,28 +557,42 @@ function onResize() {
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  renderer.render(scene, camera);  // resizing clears the canvas; redraw before it's shown
 }
 
-window.addEventListener('resize', onResize);
+// Also covers window resizes, since the container tracks the window.
 new ResizeObserver(onResize).observe(canvas.parentElement);
 
 // ---------------------------------------------------------------------------
-// Render loop
+// Rendering — on demand: a frame is drawn only when something changed, and
+// frames continue only while a view transition or orbit damping is moving.
 // ---------------------------------------------------------------------------
 
-function animate() {
-  requestAnimationFrame(animate);
-  cameraNav.update();
-  controls.update();
+let renderRequested = false;
+
+function requestRender() {
+  if (renderRequested) return;
+  renderRequested = true;
+  requestAnimationFrame(renderFrame);
+}
+
+function renderFrame() {
+  renderRequested = false;
+  flushRebuild();
+  const tweening = cameraNav.update();
+  const moving = controls.update();  // true until damping settles
   renderer.render(scene, camera);
+  if (tweening || moving) requestRender();
 }
 
 // ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 
+syncEndBinToOffset();
 updateValueDisplays();
+createModelToggles();
 updateBinMesh();
 cameraNav.setView('iso', { animate: false });
-animate();
+requestRender();
 bindControls();

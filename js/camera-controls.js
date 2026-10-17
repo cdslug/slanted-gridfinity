@@ -6,14 +6,10 @@
  *   Right/middle drag  pan   (Shift/Cmd + left drag also pans)
  *   Wheel              zoom toward cursor
  *
- * Trackpad (macOS) — scroll gestures need input mode "trackpad" (or "auto"):
- *   Two-finger scroll          orbit
- *   Shift + two-finger scroll  pan
- *   Pinch                      zoom toward cursor
+ * Trackpad (macOS):
+ *   Two-finger scroll  zoom toward cursor (same as the wheel)
+ *   Pinch              zoom toward cursor
  *   Click-drag / two-finger click-drag  orbit / pan (same as mouse)
- *
- * Smooth-scrolling mice send the same events as trackpads, so the input mode
- * defaults to "mouse" (scroll always zooms) and is remembered per browser.
  *
  * Keys: 1 Front, 2 Back, 3 Right, 4 Left, 5 Top, 6 Bottom, 0 Iso, F Fit.
  *
@@ -22,18 +18,14 @@
 
 import * as THREE from 'three';
 
-const ORBIT_SPEED = 0.006;        // radians per pixel of scroll/drag
 const WHEEL_ZOOM_SPEED = 0.0015;  // per pixel of mouse-wheel delta
 const PINCH_ZOOM_SPEED = 0.01;    // per pixel of ctrl+wheel (pinch) delta
 const LINE_HEIGHT_PX = 33;        // for wheel events reported in lines
-const TRACKPAD_STICKY_MS = 400;   // keep a trackpad classification through momentum
 const MIN_DISTANCE = 5;
 const MAX_DISTANCE = 1500;
 const POLAR_EPS = 1e-4;
 const FIT_MARGIN = 1.15;
 const TWEEN_MS = 350;
-const INPUT_MODES = ['mouse', 'trackpad', 'auto'];
-const INPUT_MODE_STORAGE_KEY = 'slanted-gridfinity.inputMode';
 
 // Directions from target to camera.
 const VIEW_DIRECTIONS = {
@@ -57,8 +49,9 @@ const VIEW_KEYS = {
  * @param {import('three/addons/controls/OrbitControls.js').OrbitControls} opts.controls
  * @param {HTMLCanvasElement} opts.canvas
  * @param {() => THREE.Object3D[]} opts.getFrameObjects  objects to fit in view
+ * @param {() => void} [opts.requestRender]  schedule a frame (the viewer renders on demand)
  */
-export function setupCameraControls({ camera, controls, canvas, getFrameObjects }) {
+export function setupCameraControls({ camera, controls, canvas, getFrameObjects, requestRender = () => {} }) {
   // Mouse buttons: CAD-style middle-button pan; we handle wheel ourselves.
   controls.mouseButtons = {
     LEFT: THREE.MOUSE.ROTATE,
@@ -68,47 +61,14 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
   controls.enableZoom = false;
   controls.screenSpacePanning = true;
 
-  let inputMode = loadInputMode();
-  let lastTrackpadTime = -Infinity;
   let gestureActive = false;
   let tween = null;
 
   const raycaster = new THREE.Raycaster();
-  const tmpV = new THREE.Vector3();
 
   // -------------------------------------------------------------------------
   // Primitive camera moves
   // -------------------------------------------------------------------------
-
-  function orbit(dxPx, dyPx) {
-    const offset = tmpV.copy(camera.position).sub(controls.target);
-    const r = offset.length();
-    const theta = Math.atan2(offset.y, offset.x) - dxPx * ORBIT_SPEED;
-    const phi = THREE.MathUtils.clamp(
-      Math.acos(THREE.MathUtils.clamp(offset.z / r, -1, 1)) - dyPx * ORBIT_SPEED,
-      POLAR_EPS, Math.PI - POLAR_EPS,
-    );
-    offset.set(
-      r * Math.sin(phi) * Math.cos(theta),
-      r * Math.sin(phi) * Math.sin(theta),
-      r * Math.cos(phi),
-    );
-    camera.position.copy(controls.target).add(offset);
-    camera.lookAt(controls.target);
-  }
-
-  function pan(dxPx, dyPx) {
-    const dist = camera.position.distanceTo(controls.target);
-    const worldPerPx =
-      2 * dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / canvas.clientHeight;
-    camera.updateMatrix();
-    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
-    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
-    const move = right.multiplyScalar(-dxPx * worldPerPx)
-      .add(up.multiplyScalar(dyPx * worldPerPx));
-    camera.position.add(move);
-    controls.target.add(move);
-  }
 
   /** Scale camera distance by `factor` (<1 zooms in), keeping the point under the cursor fixed. */
   function zoomAt(factor, clientX, clientY) {
@@ -129,43 +89,18 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
 
     camera.position.sub(anchor).multiplyScalar(s).add(anchor);
     controls.target.sub(anchor).multiplyScalar(s).add(anchor);
+    requestRender();
   }
 
   // -------------------------------------------------------------------------
-  // Wheel / trackpad handling
+  // Wheel handling
   // -------------------------------------------------------------------------
-
-  function isTrackpad(e) {
-    if (inputMode !== 'auto') return inputMode === 'trackpad';
-
-    const now = performance.now();
-    if (now - lastTrackpadTime < TRACKPAD_STICKY_MS) {
-      lastTrackpadTime = now;
-      return true;
-    }
-
-    let trackpad;
-    if (e.deltaMode !== 0) {
-      trackpad = false;  // line/page deltas only come from wheels
-    } else if (e.wheelDeltaY || e.wheelDeltaX) {
-      // Chrome/Safari: trackpads report wheelDelta = -3 * delta; wheels report ±120 steps.
-      const wd = e.wheelDeltaY || e.wheelDeltaX;
-      const d = e.wheelDeltaY ? e.deltaY : e.deltaX;
-      trackpad = Math.abs(wd + 3 * d) < 1.5;
-    } else {
-      trackpad = e.deltaX !== 0 || Math.abs(e.deltaY) < 50;
-    }
-
-    if (trackpad) lastTrackpadTime = now;
-    return trackpad;
-  }
 
   function onWheel(e) {
     e.preventDefault();
     cancelTween();
 
     const unit = e.deltaMode === 1 ? LINE_HEIGHT_PX : e.deltaMode === 2 ? canvas.clientHeight : 1;
-    const dx = e.deltaX * unit;
     const dy = e.deltaY * unit;
 
     if (e.ctrlKey) {
@@ -174,13 +109,7 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
       return;
     }
 
-    if (isTrackpad(e)) {
-      // Scroll deltas are opposite to finger motion; negate so the model follows the fingers.
-      if (e.shiftKey) pan(-dx, -dy);
-      else orbit(-dx, -dy);
-    } else {
-      zoomAt(Math.exp(dy * WHEEL_ZOOM_SPEED), e.clientX, e.clientY);
-    }
+    zoomAt(Math.exp(dy * WHEEL_ZOOM_SPEED), e.clientX, e.clientY);
   }
 
   canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -240,6 +169,7 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
       camera.position.copy(center).addScaledVector(direction, distance);
       camera.lookAt(center);
       controls.update();
+      requestRender();
       return;
     }
 
@@ -257,6 +187,7 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
     };
     // Damping would fight the tween with leftover momentum.
     controls.enableDamping = false;
+    requestRender();
   }
 
   function setView(name, opts) {
@@ -268,9 +199,12 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
     moveTo(camera.position.clone().sub(controls.target).normalize(), opts);
   }
 
-  /** Advance any running view transition. Call once per frame before controls.update(). */
+  /**
+   * Advance any running view transition. Call in each rendered frame before
+   * controls.update(); returns true while a transition still needs frames.
+   */
   function update() {
-    if (!tween) return;
+    if (!tween) return false;
     const t = Math.min((performance.now() - tween.start) / TWEEN_MS, 1);
     const k = t * t * (3 - 2 * t);  // smoothstep
 
@@ -282,6 +216,7 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
     camera.lookAt(controls.target);
 
     if (t >= 1) cancelTween();
+    return tween !== null;
   }
 
   // -------------------------------------------------------------------------
@@ -310,20 +245,5 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects 
     setView,
     fit,
     update,
-    get inputMode() { return inputMode; },
-    setInputMode(mode) {
-      if (!INPUT_MODES.includes(mode)) return;
-      inputMode = mode;
-      lastTrackpadTime = -Infinity;
-      try { localStorage.setItem(INPUT_MODE_STORAGE_KEY, mode); } catch { /* storage unavailable */ }
-    },
   };
-}
-
-function loadInputMode() {
-  try {
-    const saved = localStorage.getItem(INPUT_MODE_STORAGE_KEY);
-    if (INPUT_MODES.includes(saved)) return saved;
-  } catch { /* storage unavailable */ }
-  return 'mouse';
 }
