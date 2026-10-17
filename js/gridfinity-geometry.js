@@ -216,7 +216,7 @@ function generateBase(tris, gridX, gridY, outerW, outerD, centerOffset, cornerSe
 export function generateSlantedBin({
   gridX = 2,
   gridY = 2,
-  heightUnits = 7,
+  heightUnits = 13,
   offsetUnits = 2,
   offsetAxis = 'x',
   wallThickness = 0.82,
@@ -318,7 +318,7 @@ export function generateSlantedBin({
 export function generateEndBin({
   gridX = 2,
   gridY = 2,
-  heightUnits = 7,
+  heightUnits = 13,
   offsetUnits = 2,
   offsetAxis = 'x',
   wallThickness = 0.82,

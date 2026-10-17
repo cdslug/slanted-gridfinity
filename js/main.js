@@ -1,10 +1,11 @@
 /**
  * main.js — Three.js scene, UI controls, and application logic.
  *
- * 3D preview preferences match the LinearVolumeSweep reference app:
- *   Camera: [80, -80, 60], fov 50, Z-up
- *   Background: #0d1117
- *   Ambient 0.4, directional 0.8 + fill 0.3
+ * 3D preview:
+ *   Camera: fov 50, Z-up, opens on a fitted iso view
+ *   Colors: Form Fit Print "Filament" palette, light (default) or dark
+ *           (SCENE_PALETTES below; theme set on <html data-theme>)
+ *   Ambient 1.0, directional 1.8 + fill 0.7
  *   Grid on XY plane, 42mm section lines
  */
 
@@ -17,9 +18,43 @@ import {
   binOuterMM, interiorHeightMM, interiorWidthMM,
 } from './gridfinity-geometry.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
+import { setupCameraControls } from './camera-controls.js';
 
 // ---------------------------------------------------------------------------
-// Scene setup (matching reference app)
+// Scene colors — mirrors form-fit-print/frontend/src/theme/palette.js
+// ---------------------------------------------------------------------------
+
+const SCENE_PALETTES = {
+  light: {
+    viewerBg:     '#e8e1d4',
+    gridCell:     '#ddd3c2',
+    gridSection:  '#cbbfa8',
+    bin:          '#f5c242',  // brand gold; palette's deeper #cf9a10 shades to brown here
+    endBin:       '#4f8a3c',  // mesh.sweep (green)
+    wireframe:    '#7d7160',  // textMuted
+    crossSection: '#bd6f12',  // warn
+  },
+  dark: {
+    viewerBg:     '#0f0d0b',
+    gridCell:     '#2e2a24',
+    gridSection:  '#3a352d',
+    bin:          '#f5c242',  // mesh.result (brand gold)
+    endBin:       '#6aa84f',  // mesh.sweep (green)
+    wireframe:    '#9a8f7e',  // textMuted
+    crossSection: '#e08a2e',  // warn (orange, distinct from gold)
+  },
+};
+
+const THEME_STORAGE_KEY = 'slanted-gridfinity.theme';
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+}
+
+let sceneColors = SCENE_PALETTES[currentTheme()];
+
+// ---------------------------------------------------------------------------
+// Scene setup
 // ---------------------------------------------------------------------------
 
 const canvas = document.getElementById('three-canvas');
@@ -28,7 +63,7 @@ renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color('#0d1117');
+scene.background = new THREE.Color(sceneColors.viewerBg);
 
 const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 2000);
 camera.up.set(0, 0, 1);
@@ -39,17 +74,24 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
 
+const cameraNav = setupCameraControls({
+  camera,
+  controls,
+  canvas,
+  getFrameObjects: () => [binMesh, endBinMesh],
+});
+
 // ---------------------------------------------------------------------------
-// Lighting (matching reference app)
+// Lighting (three.js r155+ physical intensities, so brighter than legacy values)
 // ---------------------------------------------------------------------------
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+scene.add(new THREE.AmbientLight(0xffffff, 1.0));
 
-const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
 keyLight.position.set(50, -50, 80);
 scene.add(keyLight);
 
-const fillLight = new THREE.DirectionalLight(0xffffff, 0.3);
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.7);
 fillLight.position.set(-30, 30, -20);
 scene.add(fillLight);
 
@@ -61,13 +103,13 @@ function createGrid() {
   const group = new THREE.Group();
 
   // Fine grid: 5mm cells over 250mm
-  const fineGrid = new THREE.GridHelper(250, 50, 0x1a2744, 0x1a2744);
+  const fineGrid = new THREE.GridHelper(250, 50, sceneColors.gridCell, sceneColors.gridCell);
   fineGrid.rotation.x = Math.PI / 2;
   fineGrid.position.z = -0.02;
   group.add(fineGrid);
 
   // Section grid: 42mm (1 gridfinity unit) over 252mm (6 units)
-  const sectionGrid = new THREE.GridHelper(252, 6, 0x2a3a5a, 0x2a3a5a);
+  const sectionGrid = new THREE.GridHelper(252, 6, sceneColors.gridSection, sceneColors.gridSection);
   sectionGrid.rotation.x = Math.PI / 2;
   sectionGrid.position.z = -0.01;
   group.add(sectionGrid);
@@ -75,7 +117,8 @@ function createGrid() {
   return group;
 }
 
-scene.add(createGrid());
+let grid = createGrid();
+scene.add(grid);
 
 // Axes helper (small, at origin)
 const axes = new THREE.AxesHelper(15);
@@ -93,7 +136,7 @@ let currentGeomResult = null;
 let currentEndBinResult = null;
 
 const binMaterial = new THREE.MeshStandardMaterial({
-  color: '#4a90d9',
+  color: sceneColors.bin,
   metalness: 0.1,
   roughness: 0.6,
   side: THREE.DoubleSide,
@@ -102,7 +145,7 @@ const binMaterial = new THREE.MeshStandardMaterial({
 });
 
 const endBinMaterial = new THREE.MeshStandardMaterial({
-  color: '#4caf50',
+  color: sceneColors.endBin,
   metalness: 0.1,
   roughness: 0.6,
   side: THREE.DoubleSide,
@@ -111,7 +154,7 @@ const endBinMaterial = new THREE.MeshStandardMaterial({
 });
 
 const wireframeMaterial = new THREE.LineBasicMaterial({
-  color: '#8899aa',
+  color: sceneColors.wireframe,
   transparent: true,
   opacity: 0.3,
 });
@@ -191,7 +234,7 @@ function updateCrossSectionPlane() {
   const planeSize = Math.max(d.outerWidth, d.outerDepth) + d.totalOffset + 20;
   const planeGeom = new THREE.PlaneGeometry(planeSize, planeSize);
   const planeMat = new THREE.MeshBasicMaterial({
-    color: '#ff9800',
+    color: sceneColors.crossSection,
     transparent: true,
     opacity: 0.15,
     side: THREE.DoubleSide,
@@ -212,6 +255,36 @@ function updateCrossSectionPlane() {
 }
 
 // ---------------------------------------------------------------------------
+// Theme (light default, dark optional)
+// ---------------------------------------------------------------------------
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem(THEME_STORAGE_KEY, theme); } catch { /* storage unavailable */ }
+  sceneColors = SCENE_PALETTES[theme];
+
+  scene.background.set(sceneColors.viewerBg);
+  scene.remove(grid);
+  grid.traverse((obj) => { obj.geometry?.dispose(); obj.material?.dispose(); });
+  grid = createGrid();
+  scene.add(grid);
+
+  binMaterial.color.set(sceneColors.bin);
+  endBinMaterial.color.set(sceneColors.endBin);
+  wireframeMaterial.color.set(sceneColors.wireframe);
+  crossSectionPlane?.material.color.set(sceneColors.crossSection);
+
+  updateThemeToggle();
+}
+
+function updateThemeToggle() {
+  const btn = document.getElementById('theme-toggle');
+  const dark = currentTheme() === 'dark';
+  btn.textContent = dark ? 'Light' : 'Dark';
+  btn.title = dark ? 'Switch to light mode' : 'Switch to dark mode';
+}
+
+// ---------------------------------------------------------------------------
 // UI parameter reading
 // ---------------------------------------------------------------------------
 
@@ -219,7 +292,7 @@ function readParams() {
   return {
     gridX: parseInt(document.getElementById('grid-x').value) || 2,
     gridY: parseInt(document.getElementById('grid-y').value) || 2,
-    heightUnits: parseInt(document.getElementById('height-units').value) || 7,
+    heightUnits: parseInt(document.getElementById('height-units').value) || 13,
     offsetUnits: parseFloat(document.getElementById('offset-units').value) || 0,
     offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value || 'x',
     wallThickness: parseFloat(document.getElementById('wall-thickness').value) || 0.82,
@@ -256,6 +329,11 @@ function updateDimensionInfo(dims) {
 // ---------------------------------------------------------------------------
 
 function bindControls() {
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+  });
+  updateThemeToggle();
+
   const controlIds = [
     'grid-x', 'grid-y', 'height-units', 'offset-units',
     'wall-thickness', 'include-base', 'corner-segments',
@@ -324,12 +402,22 @@ function bindControls() {
     }
   });
 
-  // Reset camera
-  document.getElementById('reset-camera').addEventListener('click', () => {
-    camera.position.set(80, -80, 60);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-    controls.update();
+  // Standard views
+  for (const btn of document.querySelectorAll('[data-view]')) {
+    btn.addEventListener('click', () => cameraNav.setView(btn.dataset.view));
+  }
+  document.getElementById('fit-view').addEventListener('click', () => cameraNav.fit());
+
+  // Wheel/trackpad interpretation
+  const inputModeSelect = document.getElementById('input-mode');
+  inputModeSelect.value = cameraNav.inputMode;
+  inputModeSelect.addEventListener('change', (e) => {
+    cameraNav.setInputMode(e.target.value);
+  });
+
+  // Controls help
+  document.getElementById('toggle-help').addEventListener('click', () => {
+    document.getElementById('nav-help').classList.toggle('hidden');
   });
 }
 
@@ -386,6 +474,7 @@ new ResizeObserver(onResize).observe(canvas.parentElement);
 
 function animate() {
   requestAnimationFrame(animate);
+  cameraNav.update();
   controls.update();
   renderer.render(scene, camera);
 }
@@ -396,5 +485,6 @@ function animate() {
 
 updateValueDisplays();
 updateBinMesh();
+cameraNav.setView('iso', { animate: false });
 animate();
 bindControls();
