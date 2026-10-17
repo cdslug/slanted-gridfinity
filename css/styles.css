@@ -1,6 +1,5 @@
 /* =========================================================================
    Slanted Gridfinity — Form Fit Print "Filament" theme
-   Tokens mirror form-fit-print/frontend/design-sync/tokens.css.
    Light is the default; <html data-theme="dark"> switches to dark.
    Scene colors (three.js) live in js/main.js under SCENE_PALETTES.
    ========================================================================= */
@@ -595,7 +594,7 @@ input[type="range"]::-moz-range-track {
 
 /* -------------------------------------------------------------------------
    Model visibility/opacity chips (top middle of viewport)
-   Matches form-fit-print's viewer toggle overlay and .viewer-chip.
+   Viewer chips: click toggles a model, horizontal drag sets its opacity.
    ------------------------------------------------------------------------- */
 
 .model-toggles {
@@ -614,8 +613,7 @@ input[type="range"]::-moz-range-track {
 }
 
 /* ══ Phones and small tablets: max-width 768px ═════════════════════════════
-   The one phone breakpoint, the same as form-fit-print's (App.css,
-   hooks/useMediaQuery.js MOBILE_QUERY).
+   The one phone breakpoint.
 
    1. Split screen. The 3D view is the top half; the options are the bottom
       half. The header and the Export bar stay put and only the parameters
@@ -623,7 +621,7 @@ input[type="range"]::-moz-range-track {
       options always scrolls them.
    2. Tap targets are 44 px tall, text is at least 12.5 px, and form fields are
       16 px so iOS doesn't zoom in when one takes focus.
-   3. Contrast: muted, faint and dim text are darker (form-fit-print's values).
+   3. Contrast: muted, faint and dim text are darker.
    4. The viewer overlays shrink: chips stack top left and dimensions fold to
       the max pen length.
    ════════════════════════════════════════════════════════════════════════════ */
