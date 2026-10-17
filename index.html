@@ -46,14 +46,14 @@
           <h3>Grid Size</h3>
           <div class="param-row">
             <div class="param-text">
-              <label for="grid-unit-mm">Unit size</label>
+              <label for="grid-unit-mm" data-help="grid.unit" data-help-click>Unit size</label>
               <div class="value-display">mm per grid unit</div>
             </div>
             <input type="number" id="grid-unit-mm" min="20" max="100" step="0.5" value="42">
           </div>
           <div class="param-row">
             <div class="param-text">
-              <label for="grid-divisions">Divisions</label>
+              <label for="grid-divisions" data-help="grid.divisions" data-help-click>Divisions</label>
               <div class="value-display" id="grid-unit-val"></div>
             </div>
             <select id="grid-divisions">
@@ -63,13 +63,13 @@
           </div>
           <div class="param-row">
             <div class="param-text">
-              <label for="grid-x">Bin size</label>
+              <label for="grid-x" data-help="grid.size" data-help-click>Bin size</label>
               <div class="value-display">X × Y units</div>
             </div>
             <div class="param-pair">
-              <input type="number" id="grid-x" min="1" max="6" step="1" value="2" aria-label="X units">
+              <input type="number" id="grid-x" min="1" max="20" step="1" value="2" aria-label="X units">
               <span class="param-sep">×</span>
-              <input type="number" id="grid-y" min="1" max="6" step="1" value="2" aria-label="Y units">
+              <input type="number" id="grid-y" min="1" max="20" step="1" value="2" aria-label="Y units">
             </div>
           </div>
         </div>
@@ -79,11 +79,11 @@
           <h3>Height</h3>
           <div class="param-row">
             <div class="param-text">
-              <label for="height-units">Height units</label>
+              <label for="height-units" data-help="height.units" data-help-click>Height units</label>
               <div class="value-display" id="height-units-val"></div>
               <div class="value-display" id="diagonal-val"></div>
             </div>
-            <input type="number" id="height-units" min="1" max="14" step="1" value="12">
+            <input type="number" id="height-units" min="1" max="100" step="1" value="12">
           </div>
         </div>
 
@@ -92,14 +92,14 @@
           <h3>Slant Offset</h3>
           <div class="param-row">
             <div class="param-text">
-              <label for="offset-units">Offset</label>
+              <label for="offset-units" data-help="offset.units" data-help-click>Offset</label>
               <div class="value-display" id="offset-units-val"></div>
             </div>
-            <input type="number" id="offset-units" min="0" max="8" step="0.5" value="2">
+            <input type="number" id="offset-units" min="0" max="20" step="0.5" value="2">
           </div>
           <div class="param-row">
             <div class="param-text">
-              <label id="offset-axis-label">Offset axis</label>
+              <label id="offset-axis-label" data-help="offset.axis" data-help-click>Offset axis</label>
               <div class="value-display">direction of slant</div>
             </div>
             <div class="radio-group param-radios" role="radiogroup" aria-labelledby="offset-axis-label">
@@ -113,7 +113,7 @@
         <div class="control-section">
           <h3>Walls</h3>
           <div class="control-group">
-            <label for="wall-thickness">Wall thickness (mm)</label>
+            <label for="wall-thickness" data-help="walls.thickness" data-help-click>Wall thickness (mm)</label>
             <input type="range" id="wall-thickness" min="0.40" max="2.00" step="0.01" value="0.82">
             <div class="value-display" id="wall-thickness-val"></div>
           </div>
@@ -124,7 +124,7 @@
           <h3>Base</h3>
           <div class="checkbox-group">
             <input type="checkbox" id="include-base" checked>
-            <label for="include-base">Include gridfinity base profile</label>
+            <label for="include-base" data-help="base.include">Include gridfinity base profile</label>
           </div>
         </div>
 
@@ -134,12 +134,12 @@
           <div id="end-bin-controls">
             <div class="input-row">
               <div class="control-group">
-                <label for="end-grid-x">X units</label>
-                <input type="number" id="end-grid-x" min="1" max="8" step="1" value="2">
+                <label for="end-grid-x" data-help="end.size" data-help-click>X units</label>
+                <input type="number" id="end-grid-x" min="1" max="20" step="1" value="2">
               </div>
               <div class="control-group">
-                <label for="end-grid-y">Y units</label>
-                <input type="number" id="end-grid-y" min="1" max="8" step="1" value="2">
+                <label for="end-grid-y" data-help="end.size" data-help-click>Y units</label>
+                <input type="number" id="end-grid-y" min="1" max="20" step="1" value="2">
               </div>
             </div>
             <div class="value-display" id="end-bin-info"></div>
@@ -154,11 +154,11 @@
         <h3>Downloads</h3>
         <div class="checkbox-group">
           <input type="checkbox" id="download-bin" checked>
-          <label for="download-bin">Slanted bin</label>
+          <label for="download-bin" data-help="download.bin">Slanted bin</label>
         </div>
         <div class="checkbox-group" id="download-end-bin-row">
           <input type="checkbox" id="download-end-bin" checked>
-          <label for="download-end-bin">End bin (support wedge)</label>
+          <label for="download-end-bin" data-help="download.endBin">End bin (support wedge)</label>
         </div>
         <button class="btn btn-primary btn-full" id="export-stl">Export STL</button>
         <a class="source-link" href="https://github.com/cdslug/slanted-gridfinity" target="_blank" rel="noopener">github.com/cdslug/slanted-gridfinity</a>

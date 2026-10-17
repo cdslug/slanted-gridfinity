@@ -20,6 +20,7 @@ import {
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
+import { initParamHelp } from './param-help.js';
 
 // ---------------------------------------------------------------------------
 // Scene colors — mirrors form-fit-print/frontend/src/theme/palette.js
@@ -394,6 +395,7 @@ function readParams() {
 
 function updateDimensionInfo(dims) {
   const rows = [
+    ['Max pen length', `${dims.maxPenLength.toFixed(1)} mm`, 'highlight', 'dims.maxPen'],
     ['Outer footprint', `${dims.outerWidth.toFixed(1)} x ${dims.outerDepth.toFixed(1)} mm`],
     ['Interior', `${dims.innerWidth.toFixed(1)} x ${dims.innerDepth.toFixed(1)} mm`],
     ['Total height', `${dims.totalHeight.toFixed(1)} mm`],
@@ -402,14 +404,18 @@ function updateDimensionInfo(dims) {
     ['Total offset', `${dims.totalOffset.toFixed(1)} mm`],
     ['Slant angle', `${dims.slantAngleDeg.toFixed(1)}° from vertical`],
     ['Slant diagonal', `${dims.slantDiagonal.toFixed(1)} mm`],
-    ['Max pen length', `${dims.maxPenLength.toFixed(1)} mm`, 'highlight'],
     ['Wall thickness', `${dims.wallThickness.toFixed(2)} mm`],
   ];
-  document.getElementById('dim-info').replaceChildren(...rows.map(([label, value, extra]) => {
+  document.getElementById('dim-info').replaceChildren(...rows.map(([label, value, extra, help]) => {
     const row = document.createElement('div');
     row.className = extra ? `dim-row ${extra}` : 'dim-row';
     const name = document.createElement('span');
     name.textContent = label;
+    if (help) {
+      // A bare caption: its click does nothing else, so it opens help too
+      name.dataset.help = help;
+      name.dataset.helpClick = '';
+    }
     const val = document.createElement('span');
     val.textContent = value;
     row.append(name, val);
@@ -596,3 +602,4 @@ updateBinMesh();
 cameraNav.setView('iso', { animate: false });
 requestRender();
 bindControls();
+initParamHelp({ getContext: readParams });  // after updateBinMesh, so its check sees the Dimensions rows

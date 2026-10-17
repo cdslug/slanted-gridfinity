@@ -99,3 +99,40 @@ pkill -f 'src/app.py --no-browser --port 8765'
 If you changed the page, load it in a browser (or headless Chrome) and check
 there are no CSP violations or console errors, and that the Dimensions panel
 fills in.
+
+## 6. Parameter help tooltips
+
+Every parameter title has hover help: a 2 s hover, or a click on a title
+whose click does nothing else. **When you add or change a parameter, add or
+update its help in the same change.** The words live in one registry,
+`PARAM_HELP` in `js/param-help.js`; its header comment is the style contract.
+
+- **Add an entry** keyed `'<section>.<param>'` (e.g. `'walls.thickness'`),
+  never by label text. Fields: `title`, `meta` (units · default · range),
+  `what` (the effect; don't restate the title), `why` (when to raise or lower
+  it and what that costs), and optionally `note`. Write in the second person
+  and present tense, keep `what` + `why` under ~60 words, and take facts from
+  the code (the input's `min`/`max`/`value`, `gridfinity-geometry.js`), not
+  from older docs.
+- **Wire the title** with `data-help="<id>"`. Add `data-help-click` when
+  clicking the title does nothing else. Leave it off a checkbox's label, whose
+  click must still tick the box; on touch its help opens on a long press.
+  Don't also give the title a native `title=`, or two tooltips appear.
+- **Diagrams** (`js/help-diagrams.js`): add one when a picture explains the
+  parameter faster than words (geometry, heights, clearances), and name it in
+  the entry's `diagram`. All share the 268 × 116 side view of the bin and end
+  bin. Annotate only the parameter being described. Colours come from the
+  `dg-*` classes in `css/styles.css`, so they follow the theme; build nodes
+  with `createElementNS`. A setting the drawing depends on (the base) comes
+  from `ctx` and is drawn in its current state. Look at a new diagram in both
+  themes.
+- **Removal:** delete the entry along with the parameter, and any diagram
+  only it used.
+- **Check:** load the page. `checkParamHelp()` logs a console error for an
+  unknown id, a missing `title`/`what`/`why`, an unknown diagram, an unused
+  entry, or a sidebar control with no help, so the §5 console check catches
+  drift.
+
+Controls with no help on purpose: the theme toggle and the viewer's model
+chips (view toggles, not parameters). Read-outs that users act on, like Max
+pen length, do get help.

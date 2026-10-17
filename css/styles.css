@@ -588,9 +588,16 @@ input[type="range"]::-moz-range-track {
   font-variant-numeric: tabular-nums;
 }
 
+.dim-row.highlight span:first-child {
+  color: var(--text);
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .dim-row.highlight span:last-child {
   color: var(--accent);
   font-weight: 700;
+  font-size: 12px;
 }
 
 /* -------------------------------------------------------------------------
@@ -612,6 +619,73 @@ input[type="range"]::-moz-range-track {
 .viewer-chip {
   font-family: var(--font-ui);
 }
+
+/* -------------------------------------------------------------------------
+   Parameter help tooltip (js/param-help.js)
+   ------------------------------------------------------------------------- */
+
+[data-help] {
+  -webkit-touch-callout: none;   /* long press opens help, not the iOS menu */
+}
+
+/* The help cursor promises a click shows help, so only clickable titles get it. */
+[data-help-click] { cursor: help; }
+
+.param-tip {
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
+  max-width: 300px;
+  padding: 10px 12px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 24px var(--shadow-strong);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
+.param-tip__title {
+  color: var(--text-heading);
+  font-weight: 600;
+  font-size: 13px;
+}
+.param-tip__meta {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  margin-top: 1px;
+}
+.param-tip p { margin: 6px 0 0; }
+.param-tip__why { color: var(--text-label); }
+.param-tip__note {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Help diagrams (js/help-diagrams.js): the bin in panel colours, the thing
+   being explained in the accent. */
+.param-tip__diagram {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-top: 8px;
+  border-radius: var(--radius-input);
+  background: var(--bg-inset);
+}
+.dg-part  { fill: var(--border-input); stroke: var(--text-faint); stroke-width: 1; stroke-linejoin: round; }
+.dg-end   { fill: var(--border); stroke: var(--text-faint); stroke-width: 1; stroke-linejoin: round; }
+.dg-hi    { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; }
+.dg-dim   { fill: none; stroke: var(--accent); stroke-width: 1.2; }
+.dg-pen   { stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.dg-pen-end { fill: var(--accent); }
+.dg-guide { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 3 3; }
+.dg-plate { stroke: var(--text-faint); stroke-width: 1; }
+.dg-label, .dg-caption { font-family: var(--font-ui); font-size: 10px; }
+.dg-label   { fill: var(--text-label); }
+.dg-caption { fill: var(--text-muted); }
 
 /* ══ Phones and small tablets: max-width 768px ═════════════════════════════
    The one phone breakpoint, the same as form-fit-print's (App.css,
@@ -754,6 +828,12 @@ input[type="range"]::-moz-range-track {
   .info-overlay:not(.expanded) .dim-row:not(.highlight) { display: none; }
   .dim-row { gap: 10px; font-size: 13px; }
   .dim-row span:last-child { font-size: 12.5px; text-align: right; }
+  .dim-row.highlight span:first-child { font-size: 14px; }
+  .dim-row.highlight span:last-child { font-size: 13.5px; }
+
+  .param-tip { font-size: 14px; max-width: calc(100vw - 24px); }
+  .param-tip__title { font-size: 15px; }
+  .param-tip__meta { font-size: 12.5px; }
 }
 
 /* -------------------------------------------------------------------------
