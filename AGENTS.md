@@ -11,9 +11,8 @@ seems to require breaking one, stop and ask the user first.
   before committing; if it shows anything else, stop and ask.
 - Never write work emails, employer names, or names of other private projects
   into files, comments, or commit messages. Don't add new references to
-  `form-fit-print` or `LinearVolumeSweep`. The existing comments that name
-  `form-fit-print` are waiting on the user's decision; leave them alone unless
-  asked.
+  `form-fit-print` or `LinearVolumeSweep`. Naming the public product, Form
+  Fit Print or formfitprint.com, is fine; pointing at its source tree is not.
 - Never commit secrets, tokens, `.env` files, or generated `*.stl` files.
 - Never rewrite history, force-push, delete branches, or push at all without
   the user's explicit approval for that specific action.

@@ -23,7 +23,7 @@ import { createModelToggleButton } from './model-toggle-button.js';
 import { initParamHelp } from './param-help.js';
 
 // ---------------------------------------------------------------------------
-// Scene colors — mirrors form-fit-print/frontend/src/theme/palette.js
+// Scene colors, one palette per theme
 // ---------------------------------------------------------------------------
 
 const SCENE_PALETTES = {
@@ -170,7 +170,8 @@ const modelView = {
   endBin: { label: 'End bin',     visible: true, opacity: 1, material: endBinMaterial, mesh: () => endBinMesh },
 };
 
-// Same material rules as form-fit-print's StlModel.
+// Below full opacity a model turns transparent; below 0.9 it also stops
+// writing depth, so the model behind it shows through.
 function applyModelView(key) {
   const view = modelView[key];
   const { material } = view;

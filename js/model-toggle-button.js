@@ -1,9 +1,6 @@
 /**
  * model-toggle-button.js — viewer chip that toggles a model's visibility on
  * click and sets its opacity on horizontal drag.
- *
- * Vanilla port of form-fit-print/frontend/src/components/viewer/ModelToggleButton.jsx;
- * keep the two in step so the viewer chips behave the same across apps.
  */
 
 /**
