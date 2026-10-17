@@ -5,6 +5,29 @@
    Scene colors (three.js) live in js/main.js under SCENE_PALETTES.
    ========================================================================= */
 
+/* Space Grotesk and Space Mono, served from fonts/ (SIL OFL, see fonts/OFL.txt). */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("../fonts/SpaceGrotesk-var.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SpaceMono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Space Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/SpaceMono-700.woff2") format("woff2");
+}
+
 :root {
   /* Type */
   --font-ui:   "Space Grotesk", system-ui, -apple-system, sans-serif;

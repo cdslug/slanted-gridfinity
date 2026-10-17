@@ -8,8 +8,9 @@ Live version: [formfitprint.com/misc/angled-bins](https://formfitprint.com/misc/
 
 ## Run it locally
 
-There is no build step. The page is plain HTML and ES modules, and three.js
-loads from a CDN, so it needs a network connection the first time.
+There is no build step. The page is plain HTML and ES modules, with three.js
+(r162) and the fonts checked in under `vendor/` and `fonts/`, so it runs
+offline and makes no requests to other sites.
 
 Browsers block ES modules on `file://` URLs, so serve the folder over HTTP:
 
@@ -43,6 +44,8 @@ Then open <http://localhost:8000>. Any static server works
 | `js/camera-controls.js` | Orbit, pan, zoom and preset views |
 | `js/stl-export.js` | Binary STL writer and download |
 | `css/styles.css` | Theme tokens and layout |
+| `vendor/three/` | three.js r162 and OrbitControls (MIT) |
+| `fonts/` | Space Grotesk and Space Mono (SIL OFL) |
 
 ## Embedding
 
@@ -52,6 +55,7 @@ repo as a git submodule and copies it to `/misc/angled-bins/` at build time.
 
 ## License
 
-MIT. Gridfinity is an open modular storage system by
+MIT. The bundled three.js is MIT licensed and the fonts are under the SIL
+Open Font License; their license files sit beside them. Gridfinity is an open modular storage system by
 [Zack Freedman](https://github.com/zackfreedman/gridfinity), also released
 under the MIT license.
