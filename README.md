@@ -113,6 +113,12 @@ The app uses only relative paths, so you can copy the folder into any static
 site under any path. [Form Fit Print](https://formfitprint.com) includes this
 repo as a git submodule and copies it to `/tools/slanted-gridfinity/app/` at build time.
 
+The app makes no network requests. When you export, it fires a `tool-action`
+event on `document` with `detail: { action: 'export', detail: 'both:2x2:h12:o2x' }`
+(which files, grid size, height units, slant offset and axis), so a site that
+hosts it can count exports with its own script. Nothing listens unless the
+host page adds a listener.
+
 ## Contributing
 
 This project was built with AI coding tools by someone without a web

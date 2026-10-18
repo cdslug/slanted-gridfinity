@@ -504,6 +504,17 @@ function bindControls() {
         generateBinarySTL(endBinMesh.geometry.attributes.position.array), `${base}_support-wedge.stl`
       );
     }
+
+    // Tell the page what was exported, e.g. 'both:2x2:h12:o2x'. The app itself
+    // sends nothing anywhere; a site that hosts it can listen for this event
+    // to count exports (README, "Embedding").
+    const parts = wantBin && wantEndBin && endBinMesh ? 'both' : wantBin ? 'bin' : 'end';
+    document.dispatchEvent(new CustomEvent('tool-action', {
+      detail: {
+        action: 'export',
+        detail: `${parts}:${params.gridX}x${params.gridY}:h${params.heightUnits}:o${params.offsetUnits}${params.offsetAxis}`,
+      },
+    }));
   });
 
   // Dimensions overlay: on phones it shows only the max pen length until
