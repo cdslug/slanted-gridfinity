@@ -72,9 +72,16 @@ export const PARAM_HELP = {
   'mount.system': {
     title: 'Wall system',
     meta: '7 systems · default openGrid',
-    what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), SKÅDIS hooks, HSW pegs, GOEWS hangers, a French cleat hook, or Gridfinity feet with magnet holes.',
+    what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), a SKÅDIS attachment, HSW pegs, GOEWS hangers, a French cleat hook, or Gridfinity feet with magnet holes.',
     why: 'Pick the board you have. Only the bin side is made; use the board\'s own connectors or HSW inserts. The line below says what fits.',
     note: 'Mounts sit at the board\'s pitch, centred on the back. A back too small for one gets none.',
+  },
+  'mount.skadisMethod': {
+    title: 'Attachment',
+    meta: 'SKÅDIS only · 5 methods · default Dovetail pegs',
+    what: 'How the bin holds onto the board: dovetail pegs in a channel across the back, Multiconnect SKÅDIS plugs, M2.5 screws into T-nuts, CSD_Salzburg\'s Universal Hooks, or hooks moulded onto the bin.',
+    why: 'All but moulded hooks print without supports with the back on the bed, and their pegs or hooks print flat, which is far stronger.',
+    note: 'Pegs and washers export as their own STL. Plugs, T-nuts and Universal Hooks come from their designers\' pages.',
   },
 
   // ── Height ──────────────────────────────────────────────────────────────
@@ -141,6 +148,13 @@ export const PARAM_HELP = {
     meta: 'on / off · default on · unavailable at offset 0',
     what: 'Export STL saves the end bin as a separate file, ending _support-wedge.stl.',
     why: 'Turn it off when something else already fills the space under the overhang.',
+  },
+
+  'download.part': {
+    title: 'Mount part',
+    meta: 'on / off · default on · only for mounts that use one',
+    what: 'Export STL saves the separate part the mount uses, such as the SKÅDIS peg, as its own file, already lying in its print orientation.',
+    why: 'Print as many as the label says. Turn it off once you have enough.',
   },
 
   // ── Dimensions read-out ─────────────────────────────────────────────────

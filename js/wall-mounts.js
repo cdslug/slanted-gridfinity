@@ -8,11 +8,20 @@
  * corners of radius R. Every part is its own closed shell touching the back
  * face, as the Gridfinity feet touch the floor slab.
  *
+ * A system's plan says what the bin needs: shells to add behind the back,
+ * holes to cut through the back into the bin (for screws and hooks that
+ * reach inside), and optionally a separate small part to print, such as a
+ * peg printed flat so its layers run along the hook.
+ *
  * Dimensions are the systems' published interfaces, re-implemented here (no
  * code is copied from the sources named below):
  *   Multiconnect   slot by David D (CC BY): back-slot drawing and v2 files
- *   SKÅDIS         IKEA pegboard: 5 × 15 mm slots, 40 mm apart; hook after
- *                  skadisgen's "Normal" peg (Apache-2.0)
+ *   SKÅDIS         IKEA pegboard: 5 × 15 mm slots, 40 mm apart. Moulded
+ *                  hook after skadisgen's "Normal" peg (Apache-2.0);
+ *                  dovetail channel and peg after dtphantom's Skadis
+ *                  Dovetail Peg System (CC BY); screw holes for 6d6178's
+ *                  Skadis T-Nuts (CC BY); hook holes on CSD_Salzburg's
+ *                  Universal Hook pattern
  *   HSW            Honeycomb Storage Wall by RostaP: the peg that presses
  *                  into his printed insert, measured from his screwless box
  *   GOEWS          by MrExo3D (CC BY): the accessory hanger, as in
@@ -21,7 +30,7 @@
  *                  atiretoo's french_cleats
  */
 
-import { loft, circlePoints, stadiumPoints, hexPoints } from './mesh-shapes.js';
+import { loft, circlePoints, stadiumPoints, hexPoints, rectPoints } from './mesh-shapes.js';
 
 // (u, v, d) in the wall frame → world
 const wallPoint = (u, v, d) => [-d, u, v];
@@ -29,6 +38,16 @@ const wallPoint = (u, v, d) => [-d, u, v];
 // `n` positions `pitch` apart, centred on 0.
 function centred(n, pitch) {
   return Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * pitch);
+}
+
+// The back's outline: W x H with corners of radius R, centred on 0. CCW.
+function backOutline({ W, H, R }, segments = 8) {
+  const pts = [];
+  arc(pts, W / 2 - R, -H / 2 + R, R, 1.5 * Math.PI, 2 * Math.PI, segments);
+  arc(pts, W / 2 - R, H / 2 - R, R, 0, 0.5 * Math.PI, segments);
+  arc(pts, -W / 2 + R, H / 2 - R, R, 0.5 * Math.PI, Math.PI, segments);
+  arc(pts, -W / 2 + R, -H / 2 + R, R, Math.PI, 1.5 * Math.PI, segments);
+  return pts;
 }
 
 function arc(pts, cx, cy, r, a0, a1, segments) {
@@ -99,7 +118,10 @@ function multiconnect(sink, back, pitch) {
 }
 
 // ---------------------------------------------------------------------------
-// IKEA SKÅDIS: hooks that go through the board's slots and drop to lock.
+// IKEA SKÅDIS. The bin prints with its back on the bed, so anything standing
+// out of the back needs supports and has its layers across the hook. The
+// methods other than 'hooks' keep the back flat and put what enters the
+// board in a separate part.
 // ---------------------------------------------------------------------------
 
 const SKADIS = {
@@ -112,9 +134,26 @@ const SKADIS = {
   margin: 2,         // from the back's top and bottom edges
 };
 
-function skadis(sink, { W, H, R }) {
+export const SKADIS_METHODS = {
+  dovetail:     'Dovetail channel + printed pegs',
+  multiconnect: 'Multiconnect slots + SKÅDIS plugs',
+  tnut:         'Screw holes for T-nuts',
+  universal:    'Holes for Universal Hooks',
+  hooks:        'Moulded hooks (needs supports)',
+};
+export const DEFAULT_SKADIS_METHOD = 'dovetail';
+
+// Columns `pitch` apart that keep a part `width` wide clear of the corners.
+function columns({ W, R }, width, pitch = SKADIS.pitch) {
+  return Math.floor((W - 2 * R - width) / pitch) + 1;
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function skadisHooks(sink, back) {
+  const { H } = back;
   const k = SKADIS;
-  const n = Math.floor((W - 2 * R - 2 * k.halfWidth) / k.pitch) + 1;
+  const n = columns(back, 2 * k.halfWidth);
   const rows = [];
   for (let vb = H / 2 - k.margin - k.shaftHeight; vb - k.headDrop >= -H / 2 + k.margin; vb -= k.pitch) {
     rows.push(vb);
@@ -131,8 +170,176 @@ function skadis(sink, { W, H, R }) {
       ], wallPoint);
     }
   }
-  const count = n * rows.length;
-  return { fits: true, text: `${count} hook${count > 1 ? 's' : ''}, ${k.pitch} mm apart` };
+  return { fits: true, text: `${plural(n * rows.length, 'hook')}; print with supports` };
+}
+
+// Dovetail channels across the back, open at both ends, one row per 40 mm.
+// Pegs printed flat slide in from the side to wherever the board's slots are.
+// The channel narrows toward the board face, so with the back on the bed
+// each layer sits on the one below: no supports.
+const DOVETAIL = {
+  floorHalf: 5.5,   // channel 11 wide at its floor (the bin's back)
+  faceHalf: 4.0,    // and 8 wide at the board face
+  depth: 4,         // = plate thickness
+  margin: 2,        // channel edge from the back's top and bottom corners
+  // Peg (0.1 mm clear of the channel each side, 0.2 short of its floor)
+  tenonFloorHalf: 5.4,
+  tenonFaceHalf: 3.9,
+  tenonDepth: 3.8,
+  tenonLength: 10,
+  shaftHalf: 3.7,   // shaft through the board, 7.4 tall
+  boardDepth: 5,
+  headDepth: 5,
+  headDrop: 7.5,    // head reaches this far below the shaft, behind the board
+  thickness: 5,     // across the slot; top and bottom rounded to the slot's r 2.5
+};
+
+function dovetailPeg(sink) {
+  const k = DOVETAIL;
+  // Print orientation: the hook's side profile flat on the bed (x = depth,
+  // y = height, z = across the slot), so its layers run along the hook.
+  const flat = (d, v, u) => [d, v, u];
+  loft(sink, [0, k.tenonLength].map(u => ({
+    t: u,
+    contour: [[-k.tenonDepth, -k.tenonFloorHalf], [0, -k.tenonFaceHalf], [0, k.tenonFaceHalf], [-k.tenonDepth, k.tenonFloorHalf]],
+  })), flat);
+  const r = k.thickness / 2, steps = 8;
+  const sections = [];
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * k.thickness;
+    const e = r - Math.sqrt(Math.max(0, r * r - (u - r) ** 2));  // round ends across the slot
+    const top = k.shaftHalf - e, shaftBottom = -k.shaftHalf + e, headBottom = -k.shaftHalf - k.headDrop + e;
+    const back = k.boardDepth + k.headDepth;
+    sections.push({ t: u, contour: [
+      [0, shaftBottom], [k.boardDepth, shaftBottom], [k.boardDepth, headBottom],
+      [back, headBottom], [back, top], [0, top],
+    ] });
+  }
+  loft(sink, sections, flat);
+}
+
+function skadisDovetail(sink, back) {
+  const { W, H, R } = back;
+  const k = DOVETAIL;
+  const half = (d) => k.floorHalf + (k.faceHalf - k.floorHalf) * (d / k.depth);
+  const rows = [];
+  for (let c = H / 2 - R - k.margin - k.floorHalf; c - k.floorHalf >= -H / 2 + R + k.margin; c -= SKADIS.pitch) rows.push(c);
+  const n = columns(back, 2 * k.tenonLength);
+  if (rows.length < 1 || n < 1) return { fits: false, text: 'back too small for a channel' };
+
+  // The plate is the bands between channels, each lofted from the back
+  // (d = 0) to the board face (d = depth) as the channel edges close in.
+  const band = (lo, hi, d) => {
+    const pts = [];
+    if (hi === null) {
+      pts.push([-W / 2, lo(d)], [W / 2, lo(d)]);
+      arc(pts, W / 2 - R, H / 2 - R, R, 0, 0.5 * Math.PI, 8);
+      arc(pts, -W / 2 + R, H / 2 - R, R, 0.5 * Math.PI, Math.PI, 8);
+    } else if (lo === null) {
+      arc(pts, -W / 2 + R, -H / 2 + R, R, Math.PI, 1.5 * Math.PI, 8);
+      arc(pts, W / 2 - R, -H / 2 + R, R, 1.5 * Math.PI, 2 * Math.PI, 8);
+      pts.push([W / 2, hi(d)], [-W / 2, hi(d)]);
+    } else {
+      pts.push(...rectPoints(-W / 2, lo(d), W / 2, hi(d)));
+    }
+    return pts;
+  };
+  // Band edges from the top down: each channel's upper edge, then its lower
+  const edges = [null, ...rows.flatMap(c => [(d) => c + half(d), (d) => c - half(d)]), null];
+  for (let i = 0; i < edges.length; i += 2) {
+    const hi = edges[i], lo = edges[i + 1];  // from the top down
+    loft(sink, [0, k.depth].map(d => ({ t: d, contour: band(lo, hi, d) })), wallPoint);
+  }
+  return {
+    fits: true,
+    text: `${plural(rows.length, 'channel')}; print up to ${n} pegs each`,
+    part: { name: 'skadis-peg', count: n * rows.length, build: dovetailPeg },
+  };
+}
+
+// Multiconnect slots on the SKÅDIS slot spacing, for David D's SKÅDIS plug.
+function skadisMulticonnect(sink, back) {
+  const res = multiconnect(sink, back, SKADIS.pitch);
+  return res.fits ? { ...res, text: `${res.text}, for SKÅDIS plugs` } : res;
+}
+
+// Screw holes for 6d6178's Skadis T-Nuts (M2.5): one per slot, a screw from
+// inside the bin into a T-nut that turns to lock behind the board.
+const TNUT = {
+  holeRadius: 1.4,    // M2.5 + 0.3 clearance
+  keepOut: 3.5,       // clear radius for the nut to turn
+  // Alignment washer: sits in the slot between the bin and the T-nut
+  guideHalfWidth: 2.35,
+  guideHeight: 14.7,
+  guideThickness: 1.0,
+};
+
+function tnutWasher(sink) {
+  const k = TNUT;
+  const outline = stadiumPoints(0, -k.guideHeight / 2, k.guideHeight / 2, k.guideHalfWidth);
+  const hole = circlePoints(0, 0, k.holeRadius, 16);
+  loft(sink, [0, k.guideThickness].map(t => ({ t, contour: outline, holes: [hole] })), (a, b, t) => [a, b, t]);
+}
+
+function skadisTnut(sink, back) {
+  const { H, R } = back;
+  const k = TNUT, slotHalf = 7.5;
+  const n = columns(back, 2 * slotHalf);
+  const rows = [];
+  for (let v = H / 2 - R - slotHalf; v >= -H / 2 + R + slotHalf; v -= SKADIS.pitch) rows.push(v);
+  if (n < 1 || rows.length < 1) return { fits: false, text: 'back too small for a screw' };
+  const holes = [];
+  for (const v of rows) {
+    for (const u of centred(n, SKADIS.pitch)) holes.push(circlePoints(u, v, k.holeRadius, 16));
+  }
+  const count = holes.length;
+  return {
+    fits: true,
+    text: `${plural(count, 'M2.5 screw hole')} for T-nuts`,
+    holes,
+    part: { name: 'skadis-washer', count, build: tnutWasher },
+  };
+}
+
+// Holes on CSD_Salzburg's Universal Hook pattern, through a 5 mm back: a
+// 5 x 10 "uptick" hole above a 5 x 5 "peg" hole, 25 mm apart top to top.
+// The hook prints flat; its uptick reaches through and hooks inside the bin.
+const UNIVERSAL = {
+  backThickness: 5,   // the floor slab is 2.25 of it; a plate adds the rest
+  holeWidth: 5.2,     // 5 mm plus clearance; published fits are tight
+  upTickHeight: 10.2,
+  pegHeight: 5.2,
+  topToTop: 25,
+  fromTop: 6,         // uptick hole top, below the back's top edge
+};
+
+function skadisUniversal(sink, back, slabMM) {
+  const { H, R } = back;
+  const k = UNIVERSAL;
+  const n = columns(back, k.holeWidth);
+  const top = H / 2 - k.fromTop;
+  if (n < 1 || top - k.topToTop - k.pegHeight < -H / 2 + R) {
+    return { fits: false, text: 'back too small for a hook' };
+  }
+  const holes = [];
+  for (const u of centred(n, SKADIS.pitch)) {
+    const x0 = u - k.holeWidth / 2, x1 = u + k.holeWidth / 2;
+    holes.push(rectPoints(x0, top - k.upTickHeight, x1, top));
+    holes.push(rectPoints(x0, top - k.topToTop - k.pegHeight, x1, top - k.topToTop));
+  }
+  const plate = k.backThickness - slabMM;
+  loft(sink, [0, plate].map(d => ({ t: d, contour: backOutline(back), holes })), wallPoint);
+  return { fits: true, text: `${plural(n, 'hook position')} for Universal Hooks`, holes };
+}
+
+function skadis(sink, back, opts) {
+  switch (opts.skadisMethod) {
+    case 'hooks': return skadisHooks(sink, back);
+    case 'multiconnect': return skadisMulticonnect(sink, back);
+    case 'tnut': return skadisTnut(sink, back);
+    case 'universal': return skadisUniversal(sink, back, opts.slabMM);
+    default: return skadisDovetail(sink, back);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +479,24 @@ export const WALL_SYSTEMS = {
 
 export const DEFAULT_WALL_SYSTEM = 'opengrid';
 
-// Add the mount for `system` behind a back face { W, H, R }. Returns
-// { fits, text } describing what was added (or why nothing fits).
-export function addWallMount(sink, system, back) {
+/**
+ * Plan the mount for `system` behind a back face { W, H, R }.
+ *   opts  { skadisMethod, slabMM }: slabMM is the floor slab's thickness
+ * Returns { fits, text, holes, build, part }:
+ *   holes  outlines in (u, v) to cut through the back into the bin
+ *   build  (sink) => void, writes the mount's shells in world coordinates
+ *   part   { name, count, build(sink) } for a separate part, or null
+ */
+export function planWallMount(system, back, opts = {}) {
   const entry = WALL_SYSTEMS[system];
-  if (!entry?.build) return { fits: true, text: '' };
-  return entry.build(sink, back);
+  if (!entry?.build) return { fits: true, text: '', holes: [], build: () => {}, part: null };
+  const tris = [];
+  const res = entry.build({ tri: (a, b, c) => tris.push([a, b, c]) }, back, opts);
+  return {
+    fits: res.fits,
+    text: res.text,
+    holes: res.holes ?? [],
+    part: res.part ?? null,
+    build: (sink) => { for (const [a, b, c] of tris) sink.tri(a, b, c); },
+  };
 }

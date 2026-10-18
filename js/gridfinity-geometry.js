@@ -27,8 +27,10 @@
  *   - Main bin centered at XY origin (at the base)
  */
 
-import { roundedRectPoints, circlePoints, loft } from './mesh-shapes.js';
-import { addWallMount, WALL_SYSTEMS, DEFAULT_WALL_SYSTEM } from './wall-mounts.js';
+import { roundedRectPoints, circlePoints, loft, writeCap, writeHoleWall } from './mesh-shapes.js';
+import {
+  planWallMount, WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, SKADIS_METHODS, DEFAULT_SKADIS_METHOD,
+} from './wall-mounts.js';
 
 // ---------------------------------------------------------------------------
 // Gridfinity spec constants (from kennetek/gridfinity-rebuilt-openscad)
@@ -305,6 +307,7 @@ export function generateSlantedBin({
   includeBase = true,
   orientation = 'horizontal',
   wallSystem = DEFAULT_WALL_SYSTEM,
+  skadisMethod = DEFAULT_SKADIS_METHOD,
   cornerSegments = CORNER_SEGMENTS,
   gridMM = GRID_MM,
   divisions = 1,
@@ -317,6 +320,7 @@ export function generateSlantedBin({
   const vertical = orientation === 'vertical';
   if (vertical) {
     if (!WALL_SYSTEMS[wallSystem]) wallSystem = DEFAULT_WALL_SYSTEM;
+    if (!SKADIS_METHODS[skadisMethod]) skadisMethod = DEFAULT_SKADIS_METHOD;
     [gridX, gridY] = [gridY, gridX];
     offsetAxis = 'x';
     includeBase = wallSystem === 'gridfinity';
@@ -352,14 +356,36 @@ export function generateSlantedBin({
   const wallInnerBottom = makeRing(0, innerW, innerD, innerR, getOffset(0), cornerSegments);
   const wallInnerTop = makeRing(wallH, innerW, innerD, innerR, getOffset(wallH), cornerSegments);
 
+  // On a wall, plan the mount first: some cut holes through the back (the
+  // floor slab and the interior floor) for screws or hooks to reach inside.
+  // Wall (u, v) on the back is local (x, y) = (v, -u), before the turn below.
+  const plan = vertical
+    ? planWallMount(wallSystem, { W: outerD, H: outerW, R: BASE_CORNER_RADIUS },
+      { skadisMethod, slabMM: -BRIDGE_Z_BOTTOM })
+    : null;
+  const floorHoles = (plan?.holes ?? []).map(pts => pts.map(([u, v]) => [v, -u]));
+
   // One closed shell: floor slab (z=-2.25 to 0), outer wall, rim, inner
   // wall, and the interior floor inside the inner wall at z=0
-  addBridge(mesh, outerW, outerD, [0, 0], cornerSegments, wallOuterBottom);
+  if (floorHoles.length) {
+    const flat = (ring) => ring.map(([x, y]) => [x, y]);
+    const at = (x, y, z) => [x, y, z];
+    const bottom = makeRing(BRIDGE_Z_BOTTOM, outerW, outerD, BASE_CORNER_RADIUS, [0, 0], cornerSegments);
+    writeCap(mesh, flat(bottom), floorHoles, at, BRIDGE_Z_BOTTOM, false);
+    addStrip(mesh, bottom, wallOuterBottom);
+    for (const hole of floorHoles) writeHoleWall(mesh, hole, at, BRIDGE_Z_BOTTOM, 0);
+  } else {
+    addBridge(mesh, outerW, outerD, [0, 0], cornerSegments, wallOuterBottom);
+  }
   addStrip(mesh, wallOuterBottom, wallOuterTop);
   addRingFace(mesh, wallOuterTop, wallInnerTop);
   addStrip(mesh, wallInnerBottom, wallInnerTop, true);
-  const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
-  addFan(mesh, wallInnerBottom, floorCenter, false);
+  if (floorHoles.length) {
+    writeCap(mesh, wallInnerBottom.map(([x, y]) => [x, y]), floorHoles, (x, y, z) => [x, y, z], 0, true);
+  } else {
+    const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
+    addFan(mesh, wallInnerBottom, floorCenter, false);
+  }
 
   // --- Place on the build plate (or the wall) & dimensions ---
   const floorZ = plateShift(includeBase);
@@ -369,8 +395,14 @@ export function generateSlantedBin({
     // Back face (the base's underside) on the wall plane X = 0, slant up +Z;
     // (x, y, z) -> (z, -y, x) is a rotation, so faces keep facing outward.
     mesh.mapPoints(([x, y, z]) => [z + floorZ, -y, x]);
-    mount = { system: wallSystem, label: WALL_SYSTEMS[wallSystem].label,
-      ...addWallMount(mesh, wallSystem, { W: outerD, H: outerW, R: BASE_CORNER_RADIUS }) };
+    plan.build(mesh);
+    mount = {
+      system: wallSystem,
+      label: WALL_SYSTEMS[wallSystem].label,
+      fits: plan.fits,
+      text: plan.text,
+      part: plan.part ? { name: plan.part.name, count: plan.part.count } : null,
+    };
     result = mesh.finish(-mesh.minZ());
   } else {
     result = mesh.finish(floorZ);
@@ -406,6 +438,28 @@ export function generateSlantedBin({
       mount,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Separate mount part — e.g. a SKÅDIS peg printed flat, which the wall plan
+// asks for instead of moulding the hook onto the bin's back. Built in its
+// print orientation, resting on Z = 0. Null when the plan needs none.
+// ---------------------------------------------------------------------------
+
+export function generateWallPart({
+  gridX = 2,
+  gridY = 2,
+  gridMM = GRID_MM,
+  wallSystem = DEFAULT_WALL_SYSTEM,
+  skadisMethod = DEFAULT_SKADIS_METHOD,
+} = {}) {
+  // The same back face as the vertical bin: gridX across the wall, gridY up it
+  const back = { W: binOuterMM(gridX, gridMM), H: binOuterMM(gridY, gridMM), R: BASE_CORNER_RADIUS };
+  const plan = planWallMount(wallSystem, back, { skadisMethod, slabMM: -BRIDGE_Z_BOTTOM });
+  if (!plan.fits || !plan.part) return null;
+  const mesh = new MeshBuilder(512);
+  plan.part.build(mesh);
+  return { ...mesh.finish(-mesh.minZ()), name: plan.part.name, count: plan.part.count };
 }
 
 // ---------------------------------------------------------------------------

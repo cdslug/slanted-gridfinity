@@ -14,10 +14,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
   generateSlantedBin,
   generateEndBin,
+  generateWallPart,
   GRID_MM, HEIGHT_UNIT_MM, BASE_HEIGHT_MM,
   binOuterMM, interiorHeightMM, interiorWidthMM,
 } from './gridfinity-geometry.js';
-import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM } from './wall-mounts.js';
+import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, SKADIS_METHODS, DEFAULT_SKADIS_METHOD } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
@@ -36,6 +37,8 @@ const SCENE_PALETTES = {
     endBin:       '#e08a2e',  // mesh.target orange; deeper #bd6f12 shades to brown here
     binChip:      '#cf9a10',  // mesh.result — legible chip text on cream
     endBinChip:   '#bd6f12',  // light mesh.target — legible chip text on cream
+    part:         '#e08a2e',  // a wall mount's separate part; never shown with the end bin
+    partChip:     '#bd6f12',
   },
   dark: {
     viewerBg:     '#0f0d0b',
@@ -45,6 +48,8 @@ const SCENE_PALETTES = {
     endBin:       '#e08a2e',  // mesh.target (orange)
     binChip:      '#f5c242',
     endBinChip:   '#e08a2e',
+    part:         '#e08a2e',
+    partChip:     '#e08a2e',
   },
 };
 
@@ -82,7 +87,7 @@ const cameraNav = setupCameraControls({
   camera,
   controls,
   canvas,
-  getFrameObjects: () => [binMesh, endBinMesh],
+  getFrameObjects: () => [binMesh, endBinMesh, partMesh],
   requestRender,
 });
 controls.addEventListener('change', requestRender);
@@ -150,6 +155,10 @@ let endBinMesh = null;
 // Parameters each mesh was last built from, to skip rebuilds that can't change it
 let binKey = null;
 let endBinKey = null;
+// A wall mount's separate part (e.g. a SKÅDIS peg), shown beside the bin
+let partMesh = null;
+let partKey = null;
+let partInfo = null;  // { name, count }
 
 const binMaterial = new THREE.MeshStandardMaterial({
   color: sceneColors.bin,
@@ -165,10 +174,24 @@ const endBinMaterial = new THREE.MeshStandardMaterial({
   flatShading: true,  // face normals from screen-space derivatives; none stored
 });
 
+const partMaterial = new THREE.MeshStandardMaterial({
+  color: sceneColors.part,
+  metalness: 0.1,
+  roughness: 0.6,
+  flatShading: true,  // face normals from screen-space derivatives; none stored
+});
+
+// What each separate part is called on the page
+const PART_LABELS = {
+  'skadis-peg': 'SKÅDIS peg',
+  'skadis-washer': 'T-nut alignment washer',
+};
+
 // Viewer visibility/opacity per model, driven by the chips at the top of the viewport.
 const modelView = {
   bin:    { label: 'Slanted bin', visible: true, opacity: 1, material: binMaterial,    mesh: () => binMesh },
   endBin: { label: 'End bin',     visible: true, opacity: 1, material: endBinMaterial, mesh: () => endBinMesh },
+  part:   { label: 'Mount part',  visible: true, opacity: 1, material: partMaterial,   mesh: () => partMesh },
 };
 
 // Below full opacity a model turns transparent; below 0.9 it also stops
@@ -246,7 +269,7 @@ function updateBinMesh() {
 
   // End bin — only exists when a floor bin is slanted; it doesn't depend on
   // wall thickness or the wall mount
-  const { wallThickness, orientation, wallSystem, ...endParams } = params;
+  const { wallThickness, orientation, wallSystem, skadisMethod, ...endParams } = params;
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -260,11 +283,45 @@ function updateBinMesh() {
     }
   }
 
-  // With no slant there is no end bin: hide its chip and download option
+  // Wall mount part — depends only on the back's size and the mount choice
+  const pk = orientation === 'vertical'
+    ? JSON.stringify({ gridX: params.gridX, gridY: params.gridY, gridMM: params.gridMM, wallSystem, skadisMethod })
+    : null;
+  if (pk !== partKey) {
+    partKey = pk;
+    const part = pk ? generateWallPart(params) : null;
+    partInfo = part ? { name: part.name, count: part.count } : null;
+    if (part) {
+      partMesh = setMeshPositions(partMesh, part.positions, partMaterial);
+      partMesh.visible = modelView.part.visible;
+    } else if (partMesh) {
+      scene.remove(partMesh);
+      partMesh.geometry.dispose();
+      partMesh = null;
+    }
+  }
+  if (partMesh) {
+    // Lay it on the plate beside the bin, off its -Y side
+    binMesh.geometry.computeBoundingBox();
+    partMesh.geometry.computeBoundingBox();
+    const b = binMesh.geometry.boundingBox, p = partMesh.geometry.boundingBox;
+    partMesh.position.set(Math.max(b.min.x, 0) - p.min.x, b.min.y - 10 - p.max.y, 0);
+  }
+
+  // Hide the chips and downloads of models that don't exist right now
   const hasEndBin = Boolean(endBinMesh);
   if (modelView.endBin.chip) modelView.endBin.chip.el.style.display = hasEndBin ? '' : 'none';
   document.getElementById('download-end-bin').disabled = !hasEndBin;
   document.getElementById('download-end-bin-row').classList.toggle('disabled', !hasEndBin);
+  document.getElementById('download-end-bin-row').style.display = orientation === 'vertical' ? 'none' : '';
+  const hasPart = Boolean(partMesh);
+  if (modelView.part.chip) modelView.part.chip.el.style.display = hasPart ? '' : 'none';
+  document.getElementById('download-part-row').style.display = hasPart ? '' : 'none';
+  document.getElementById('download-part').disabled = !hasPart;
+  if (partInfo) {
+    document.getElementById('download-part-label').textContent =
+      `${PART_LABELS[partInfo.name] ?? 'Mount part'} (print ${partInfo.count})`;
+  }
   updateExportButton();
 }
 
@@ -287,8 +344,9 @@ function flushRebuild() {
 function updateExportButton() {
   const bin = document.getElementById('download-bin');
   const end = document.getElementById('download-end-bin');
+  const part = document.getElementById('download-part');
   document.getElementById('export-stl').disabled =
-    !bin.checked && !(end.checked && !end.disabled);
+    !bin.checked && !(end.checked && !end.disabled) && !(part.checked && !part.disabled);
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +363,7 @@ function setTheme(theme) {
 
   binMaterial.color.set(sceneColors.bin);
   endBinMaterial.color.set(sceneColors.endBin);
+  partMaterial.color.set(sceneColors.part);
   for (const key of Object.keys(modelView)) {
     modelView[key].chip?.update({ color: sceneColors[`${key}Chip`] });
   }
@@ -332,6 +391,11 @@ function readOrientation() {
 function readWallSystem() {
   const v = document.getElementById('wall-system').value;
   return Object.hasOwn(WALL_SYSTEMS, v) ? v : DEFAULT_WALL_SYSTEM;
+}
+
+function readSkadisMethod() {
+  const v = document.getElementById('skadis-method').value;
+  return Object.hasOwn(SKADIS_METHODS, v) ? v : DEFAULT_SKADIS_METHOD;
 }
 
 // Size inputs that count grid units; fractional when divisions > 1.
@@ -400,6 +464,7 @@ function readParams() {
     includeBase: document.getElementById('include-base').checked,
     orientation: readOrientation(),
     wallSystem: readWallSystem(),
+    skadisMethod: readSkadisMethod(),
     endGridX: readUnits('end-grid-x', divisions),
     endGridY: readUnits('end-grid-y', divisions),
   };
@@ -513,7 +578,12 @@ function bindControls() {
       cameraNav.setView('iso');
     });
   }
-  document.getElementById('wall-system').addEventListener('change', scheduleRebuild);
+  for (const id of ['wall-system', 'skadis-method']) {
+    document.getElementById(id).addEventListener('change', () => {
+      applyOrientation();
+      scheduleRebuild();
+    });
+  }
 
   // Radio buttons
   for (const radio of document.querySelectorAll('input[name="offset-axis"]')) {
@@ -524,7 +594,7 @@ function bindControls() {
   }
 
   // Downloads: choose which models Export STL saves
-  for (const id of ['download-bin', 'download-end-bin']) {
+  for (const id of ['download-bin', 'download-end-bin', 'download-part']) {
     document.getElementById(id).addEventListener('change', updateExportButton);
   }
 
@@ -534,11 +604,13 @@ function bindControls() {
     if (!binMesh) return;
     const wantBin = document.getElementById('download-bin').checked;
     const wantEndBin = document.getElementById('download-end-bin').checked;
+    const wantPart = document.getElementById('download-part').checked;
     const params = readParams();
     const unitTag = params.gridMM !== GRID_MM ? `_unit${params.gridMM}mm` : '';
     const vertical = params.orientation === 'vertical';
     const axisTag = vertical ? 'up' : params.offsetAxis;
-    const wallTag = vertical ? `_wall-${params.wallSystem}` : '';
+    const methodTag = vertical && params.wallSystem === 'skadis' ? `-${params.skadisMethod}` : '';
+    const wallTag = vertical ? `_wall-${params.wallSystem}${methodTag}` : '';
     const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${axisTag}${unitTag}${wallTag}`;
 
     // Main bin
@@ -552,6 +624,13 @@ function bindControls() {
         generateBinarySTL(endBinMesh.geometry.attributes.position.array), `${base}_support-wedge.stl`
       );
     }
+
+    // Wall mount part (separate file, in its print orientation; print several)
+    if (wantPart && partMesh && partInfo) {
+      downloadSTL(
+        generateBinarySTL(partMesh.geometry.attributes.position.array), `${base}_${partInfo.name}.stl`
+      );
+    }
   });
 
   // Dimensions overlay: on phones it shows only the max pen length until
@@ -562,12 +641,24 @@ function bindControls() {
   });
 }
 
+// One line under the SKÅDIS attachment picker: what the user prints or buys
+const SKADIS_HINTS = {
+  dovetail: 'no supports; print the pegs',
+  multiconnect: 'no supports; print SKÅDIS plugs',
+  tnut: 'no supports; M2.5 screws, T-nuts',
+  universal: 'no supports; print Universal Hooks',
+  hooks: 'hooks need supports',
+};
+
 // On a wall the slant always runs up, the mount replaces the base, and
 // there's no row to end, so those controls only show for a floor bin.
 function applyOrientation() {
   const vertical = readOrientation() === 'vertical';
   const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
   show('wall-system-row', vertical);
+  const skadis = vertical && readWallSystem() === 'skadis';
+  show('skadis-method-row', skadis);
+  document.getElementById('skadis-method-val').textContent = skadis ? SKADIS_HINTS[readSkadisMethod()] : '';
   show('offset-axis-row', !vertical);
   show('base-section', !vertical);
   show('end-bin-section', !vertical);
