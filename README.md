@@ -124,10 +124,22 @@ board's pitch and centred on the back, and the sidebar says how many fit.
 | Gridfinity plate | Standard feet with 6.5 x 2.4 mm magnet holes, for a magnetic baseplate mounted on the wall | 42 mm |
 | openGrid | [Multiconnect](https://www.printables.com/model/987877) dovetail slots, open at the bottom | 28 mm |
 | Multiboard | Multiconnect dovetail slots | 25 mm |
-| IKEA SKÅDIS | Hooks that pass through the slots and drop to lock | 40 mm |
+| IKEA SKÅDIS | One of five attachments, below | 40 mm |
 | Honeycomb Storage Wall | Tapered hex pegs that press into RostaP's printed HSW inserts | 40.9 mm across, 23.6 mm up |
 | GOEWS | V-edged hangers that slide down between the tile's cleats | 42 mm |
 | French cleat | A 45° hook block for 19 mm (3/4") plywood cleats, plus a spacer on tall bins | any |
+
+SKÅDIS has a choice of attachment, because the bin prints with its back on
+the bed and hooks moulded onto that face need supports and snap along their
+layers. All but the last keep the back flat and print without supports:
+
+| Attachment | On the bin | You print or buy |
+| --- | --- | --- |
+| Dovetail pegs (default) | Dovetail channels across the back, open at both ends, after [dtphantom's peg system](https://www.printables.com/model/283732) (CC BY) | Pegs, exported as their own STL and printed flat, so their layers run along the hook |
+| Multiconnect | Multiconnect slots 40 mm apart | David D's [Multiconnect SKÅDIS plugs](https://www.printables.com/model/1111567) |
+| T-nut screws | M2.5 screw holes, one per slot | [6d6178's Skadis T-Nuts](https://www.printables.com/model/228663), M2.5 screws and nuts; alignment washers are exported |
+| Universal Hook | 5 x 10 and 5 x 5 mm holes, 25 mm apart, through a 5 mm back | CSD_Salzburg's Universal Hook, printed flat |
+| Moulded hooks | Hooks on the back, after [skadisgen](https://github.com/tohaimate/skadisgen)'s peg | Nothing, but print with supports |
 
 The geometry is written here from each system's published dimensions; no code
 is copied from these projects. Thanks to their authors:
@@ -135,6 +147,9 @@ Multiconnect by David D (CC BY);
 [openGrid](https://github.com/openGrid-3D);
 Multiboard by Keep Making (compatible accessory, not affiliated);
 [skadisgen](https://github.com/tohaimate/skadisgen) for the SKÅDIS hook profile (Apache-2.0);
+dtphantom for the SKÅDIS dovetail channel and peg (CC BY);
+6d6178 for the SKÅDIS T-nut screw pattern (CC BY);
+CSD_Salzburg for the Universal Hook hole pattern;
 Honeycomb Storage Wall by RostaP;
 GOEWS by MrExo3D (CC BY) and [goews-rebuilt-openscad](https://github.com/jimfunk/goews-rebuilt-openscad);
 [french_cleats](https://github.com/atiretoo/french_cleats) for the cleat profile;

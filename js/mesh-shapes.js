@@ -65,6 +65,11 @@ export function stadiumPoints(cx, y0, y1, r, segments = 8) {
 }
 
 // Regular hexagon with flats top and bottom, `apothem` from centre to a flat.
+// Axis-aligned rectangle, CCW.
+export function rectPoints(x0, y0, x1, y1) {
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
+
 export function hexPoints(cx, cy, apothem) {
   const R = apothem * 2 / Math.sqrt(3);
   const pts = [];
@@ -116,14 +121,57 @@ export class Shell {
 
 const area2 = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
 
-function cap(shell, contour, holes, toWorld, t, upward) {
+// The triangulator can leave a cap that doesn't meet its walls edge to edge
+// when points line up exactly (common once several aligned holes are bridged
+// together): it may drop such a point, or emit a flat triangle across three
+// of them. Drop flat triangles, then split every triangle that has a vertex
+// lying inside one of its edges, so each edge of the boundary is an edge of
+// exactly one triangle.
+function conform(pts, faces) {
+  const out = faces.filter(([a, b, c]) => Math.abs(area2(pts[a], pts[b], pts[c])) > 1e-9);
+  for (let v = 0; v < pts.length; v++) {
+    const p = pts[v];
+    for (let f = 0; f < out.length; f++) {
+      const tri = out[f];
+      for (let e = 0; e < 3; e++) {
+        const a = tri[e], b = tri[(e + 1) % 3], c = tri[(e + 2) % 3];
+        if (v === a || v === b || v === c) continue;
+        const A = pts[a], B = pts[b];
+        const len2 = (B[0] - A[0]) ** 2 + (B[1] - A[1]) ** 2;
+        const along = ((p[0] - A[0]) * (B[0] - A[0]) + (p[1] - A[1]) * (B[1] - A[1])) / len2;
+        if (Math.abs(area2(A, B, p)) / Math.sqrt(len2) < 1e-7 && along > 1e-9 && along < 1 - 1e-9) {
+          out.splice(f, 1, [a, v, c], [v, b, c]);
+          f++;  // both new triangles have v as a corner
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A flat face at height t: `contour` with `holes` cut out, triangulated on
+ * their own vertices only, so its edges meet walls built on the same points.
+ * `upward` faces +t when toWorld keeps (a, b, t) right-handed.
+ */
+export function writeCap(sink, contour, holes, toWorld, t, upward) {
   const flat = contour.concat(...holes);
-  const faces = ShapeUtils.triangulateShape(vec(contour), holes.map(vec));
+  const faces = conform(flat, ShapeUtils.triangulateShape(vec(contour), holes.map(vec)));
   for (const [i, j, k] of faces) {
     const ccw = area2(flat[i], flat[j], flat[k]) > 0;
     const [a, b, c] = ccw === upward ? [i, j, k] : [i, k, j];
-    shell.tri(toWorld(...flat[a], t), toWorld(...flat[b], t), toWorld(...flat[c], t));
+    sink.tri(toWorld(...flat[a], t), toWorld(...flat[b], t), toWorld(...flat[c], t));
   }
+}
+
+/**
+ * The wall of a hole through a face, from t0 up to t1 (t0 < t1), facing
+ * into the hole when toWorld keeps (a, b, t) right-handed.
+ */
+export function writeHoleWall(sink, hole, toWorld, t0, t1) {
+  const ring = ShapeUtils.isClockWise(vec(hole)) ? hole : hole.slice().reverse();
+  strip(sink, ring, ring, toWorld, t0, t1);
 }
 
 function strip(shell, ring0, ring1, toWorld, t0, t1) {
@@ -162,7 +210,7 @@ export function loft(sink, sections, toWorld) {
     s0.holes.forEach((h, i) => strip(shell, h, s1.holes[i], toWorld, s0.t, s1.t));
   }
   const last = norm[norm.length - 1];
-  cap(shell, norm[0].contour, norm[0].holes, toWorld, norm[0].t, false);
-  cap(shell, last.contour, last.holes, toWorld, last.t, true);
+  writeCap(shell, norm[0].contour, norm[0].holes, toWorld, norm[0].t, false);
+  writeCap(shell, last.contour, last.holes, toWorld, last.t, true);
   shell.writeTo(sink);
 }

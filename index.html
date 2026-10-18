@@ -102,6 +102,19 @@
               <option value="cleat">French cleat</option>
             </select>
           </div>
+          <div class="param-row" id="skadis-method-row">
+            <div class="param-text">
+              <label for="skadis-method" data-help="mount.skadisMethod" data-help-click>Attachment</label>
+              <div class="value-display" id="skadis-method-val"></div>
+            </div>
+            <select id="skadis-method">
+              <option value="dovetail" selected>Dovetail pegs</option>
+              <option value="multiconnect">Multiconnect</option>
+              <option value="tnut">T-nut screws</option>
+              <option value="universal">Universal Hook</option>
+              <option value="hooks">Moulded hooks</option>
+            </select>
+          </div>
         </div>
 
         <!-- Height -->
@@ -189,6 +202,10 @@
         <div class="checkbox-group" id="download-end-bin-row">
           <input type="checkbox" id="download-end-bin" checked>
           <label for="download-end-bin" data-help="download.endBin">End bin (support wedge)</label>
+        </div>
+        <div class="checkbox-group" id="download-part-row">
+          <input type="checkbox" id="download-part" checked>
+          <label for="download-part" id="download-part-label" data-help="download.part">Mount part</label>
         </div>
         <button class="btn btn-primary btn-full" id="export-stl">Export STL</button>
         <a class="source-link" href="https://github.com/cdslug/slanted-gridfinity" target="_blank" rel="noopener">github.com/cdslug/slanted-gridfinity</a>
