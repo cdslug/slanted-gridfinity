@@ -667,6 +667,21 @@ function bindControls() {
         generateBinarySTL(partMesh.geometry.attributes.position.array), `${base}_${partInfo.name}.stl`
       );
     }
+
+    // Tell the page what was exported, e.g. 'both:2x2:h12:o2x', or
+    // 'bin-part:2x1:h6:o1up' with a wall mount part. The app itself sends
+    // nothing anywhere; a site that hosts it can listen for this event to
+    // count exports (README, "Embedding").
+    const gotEnd = wantEndBin && endBinMesh;
+    const gotPart = wantPart && partMesh && partInfo;
+    const bins = wantBin && gotEnd ? 'both' : wantBin ? 'bin' : gotEnd ? 'end' : '';
+    const parts = gotPart ? (bins ? `${bins}-part` : 'part') : bins;
+    document.dispatchEvent(new CustomEvent('tool-action', {
+      detail: {
+        action: 'export',
+        detail: `${parts}:${params.gridX}x${params.gridY}:h${params.heightUnits}:o${params.offsetUnits}${axisTag}`,
+      },
+    }));
   });
 
   // Dimensions overlay: on phones it shows only the max pen length until
