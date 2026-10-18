@@ -18,7 +18,7 @@ import {
   GRID_MM, HEIGHT_UNIT_MM, BASE_HEIGHT_MM,
   binOuterMM, interiorHeightMM, interiorWidthMM,
 } from './gridfinity-geometry.js';
-import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, SKADIS_METHODS, DEFAULT_SKADIS_METHOD } from './wall-mounts.js';
+import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
@@ -185,6 +185,9 @@ const partMaterial = new THREE.MeshStandardMaterial({
 const PART_LABELS = {
   'skadis-peg': 'SKÅDIS peg',
   'skadis-washer': 'T-nut alignment washer',
+  'hsw-connector': 'HSW connector',
+  'goews-hanger': 'GOEWS hanger',
+  'cleat-bar': 'Cleat bar',
 };
 
 // Viewer visibility/opacity per model, driven by the chips at the top of the viewport.
@@ -269,7 +272,7 @@ function updateBinMesh() {
 
   // End bin — only exists when a floor bin is slanted; it doesn't depend on
   // wall thickness or the wall mount
-  const { wallThickness, orientation, wallSystem, skadisMethod, ...endParams } = params;
+  const { wallThickness, orientation, wallSystem, mountMethod, ...endParams } = params;
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -285,7 +288,10 @@ function updateBinMesh() {
 
   // Wall mount part — depends only on the back's size and the mount choice
   const pk = orientation === 'vertical'
-    ? JSON.stringify({ gridX: params.gridX, gridY: params.gridY, gridMM: params.gridMM, wallSystem, skadisMethod })
+    ? JSON.stringify({
+      gridX: params.gridX, gridY: params.gridY, gridMM: params.gridMM, wallSystem, mountMethod,
+      fitClearance: params.fitClearance,
+    })
     : null;
   if (pk !== partKey) {
     partKey = pk;
@@ -393,9 +399,28 @@ function readWallSystem() {
   return Object.hasOwn(WALL_SYSTEMS, v) ? v : DEFAULT_WALL_SYSTEM;
 }
 
-function readSkadisMethod() {
-  const v = document.getElementById('skadis-method').value;
-  return Object.hasOwn(SKADIS_METHODS, v) ? v : DEFAULT_SKADIS_METHOD;
+// The attachment for the current wall system, or null if it has no choice
+function readMountMethod() {
+  return resolveMethod(readWallSystem(), document.getElementById('mount-method').value);
+}
+
+// Fill the attachment picker with the wall system's methods, keeping the
+// current choice when the new system has it too.
+let methodSystem = null;
+function syncMethodOptions() {
+  const system = readWallSystem();
+  if (system === methodSystem) return;
+  methodSystem = system;
+  const select = document.getElementById('mount-method');
+  const previous = select.value;
+  const methods = WALL_SYSTEMS[system].methods ?? {};
+  select.replaceChildren(...Object.entries(methods).map(([key, { label }]) => {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = label;
+    return option;
+  }));
+  if (Object.hasOwn(methods, previous)) select.value = previous;
 }
 
 // Size inputs that count grid units; fractional when divisions > 1.
@@ -464,7 +489,8 @@ function readParams() {
     includeBase: document.getElementById('include-base').checked,
     orientation: readOrientation(),
     wallSystem: readWallSystem(),
-    skadisMethod: readSkadisMethod(),
+    mountMethod: readMountMethod(),
+    fitClearance: readNumber('fit-clearance', 0),
     endGridX: readUnits('end-grid-x', divisions),
     endGridY: readUnits('end-grid-y', divisions),
   };
@@ -535,7 +561,7 @@ function bindControls() {
 
   const controlIds = [
     'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units',
-    'wall-thickness', 'include-base',
+    'wall-thickness', 'include-base', 'fit-clearance',
     'end-grid-x', 'end-grid-y',
   ];
 
@@ -578,7 +604,16 @@ function bindControls() {
       cameraNav.setView('iso');
     });
   }
-  for (const id of ['wall-system', 'skadis-method']) {
+  // A nozzle choice fills in its suggested clearance, which stays editable
+  document.getElementById('nozzle').addEventListener('change', () => {
+    const nozzle = NOZZLES.includes(document.getElementById('nozzle').value)
+      ? Number(document.getElementById('nozzle').value) : 0.4;
+    document.getElementById('fit-clearance').value = suggestedClearance(nozzle).toFixed(2);
+    updateValueDisplays();
+    scheduleRebuild();
+  });
+
+  for (const id of ['wall-system', 'mount-method']) {
     document.getElementById(id).addEventListener('change', () => {
       applyOrientation();
       scheduleRebuild();
@@ -609,9 +644,10 @@ function bindControls() {
     const unitTag = params.gridMM !== GRID_MM ? `_unit${params.gridMM}mm` : '';
     const vertical = params.orientation === 'vertical';
     const axisTag = vertical ? 'up' : params.offsetAxis;
-    const methodTag = vertical && params.wallSystem === 'skadis' ? `-${params.skadisMethod}` : '';
+    const methodTag = vertical && params.mountMethod ? `-${params.mountMethod}` : '';
     const wallTag = vertical ? `_wall-${params.wallSystem}${methodTag}` : '';
-    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${axisTag}${unitTag}${wallTag}`;
+    const fitTag = params.fitClearance ? `_fit${params.fitClearance > 0 ? '+' : ''}${params.fitClearance.toFixed(2)}` : '';
+    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${axisTag}${unitTag}${wallTag}${fitTag}`;
 
     // Main bin
     if (wantBin) {
@@ -641,14 +677,12 @@ function bindControls() {
   });
 }
 
-// One line under the SKÅDIS attachment picker: what the user prints or buys
-const SKADIS_HINTS = {
-  dovetail: 'no supports; print the pegs',
-  multiconnect: 'no supports; print SKÅDIS plugs',
-  tnut: 'no supports; M2.5 screws, T-nuts',
-  universal: 'no supports; print Universal Hooks',
-  hooks: 'hooks need supports',
-};
+// Print fit. The published fits assume a 0.4 mm nozzle; a wider one lays
+// wider lines and rounder corners, so holes print smaller and pegs fatter.
+// The suggestion adds half the nozzle's difference from 0.4 per side (a rule
+// of thumb, not a measured value): -0.1, 0, +0.1, +0.2 mm.
+const NOZZLES = ['0.2', '0.4', '0.6', '0.8'];
+const suggestedClearance = (nozzle) => (nozzle - 0.4) / 2;
 
 // On a wall the slant always runs up, the mount replaces the base, and
 // there's no row to end, so those controls only show for a floor bin.
@@ -656,9 +690,12 @@ function applyOrientation() {
   const vertical = readOrientation() === 'vertical';
   const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
   show('wall-system-row', vertical);
-  const skadis = vertical && readWallSystem() === 'skadis';
-  show('skadis-method-row', skadis);
-  document.getElementById('skadis-method-val').textContent = skadis ? SKADIS_HINTS[readSkadisMethod()] : '';
+  // The attachment picker, for systems that offer more than one way to mount
+  syncMethodOptions();
+  const method = readMountMethod();
+  show('mount-method-row', vertical && method !== null);
+  document.getElementById('mount-method-val').textContent =
+    method ? WALL_SYSTEMS[readWallSystem()].methods[method].hint : '';
   show('offset-axis-row', !vertical);
   show('base-section', !vertical);
   show('end-bin-section', !vertical);
@@ -669,6 +706,10 @@ function applyOrientation() {
 function updateValueDisplays() {
   const unit = readGridMM();
   const divisions = readDivisions();
+
+  const fit = readNumber('fit-clearance', 0);
+  document.getElementById('fit-clearance-val').textContent =
+    fit === 0 ? 'mm per side; published fits' : `mm per side; ${fit > 0 ? 'looser' : 'tighter'}`;
 
   // Grid unit
   document.getElementById('grid-unit-val').textContent = divisions > 1

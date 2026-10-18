@@ -72,16 +72,16 @@ export const PARAM_HELP = {
   'mount.system': {
     title: 'Wall system',
     meta: '7 systems · default openGrid',
-    what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), a SKÅDIS attachment, HSW pegs, GOEWS hangers, a French cleat hook, or Gridfinity feet with magnet holes.',
+    what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), SKÅDIS, HSW, GOEWS or French cleat mounts, or Gridfinity feet with magnet holes.',
     why: 'Pick the board you have. Only the bin side is made; use the board\'s own connectors or HSW inserts. The line below says what fits.',
     note: 'Mounts sit at the board\'s pitch, centred on the back. A back too small for one gets none.',
   },
-  'mount.skadisMethod': {
+  'mount.method': {
     title: 'Attachment',
-    meta: 'SKÅDIS only · 5 methods · default Dovetail pegs',
-    what: 'How the bin holds onto the board: dovetail pegs in a channel across the back, Multiconnect SKÅDIS plugs, M2.5 screws into T-nuts, CSD_Salzburg\'s Universal Hooks, or hooks moulded onto the bin.',
-    why: 'All but moulded hooks print without supports with the back on the bed, and their pegs or hooks print flat, which is far stronger.',
-    note: 'Pegs and washers export as their own STL. Plugs, T-nuts and Universal Hooks come from their designers\' pages.',
+    meta: 'SKÅDIS, HSW, GOEWS and French cleat · default: the first, support-free one',
+    what: 'How the bin holds onto the board. Moulded hooks, pegs and hangers stand out of the back; the other choices cut a channel, slot or holes in it for a separately printed part.',
+    why: 'Pick a separate-part choice to print the bin flat on its back with no supports. The parts print lying down, so their layers run along the hook.',
+    note: 'Separate parts export as their own STL. SKÅDIS plugs, T-nuts and Universal Hooks come from their designers\' pages.',
   },
 
   // ── Height ──────────────────────────────────────────────────────────────
@@ -115,6 +115,21 @@ export const PARAM_HELP = {
     what: 'Measured horizontally and kept the same at every height, so each printed layer has the same wall width even where the wall leans.',
     why: 'Match a whole number of your slicer\'s line widths: the default 0.82 mm is one line from a 0.8 mm nozzle, which prints fast. Thicker walls are stiffer but take twice their thickness off the inside in each direction.',
     diagram: 'wall',
+  },
+
+  // ── Print fit ───────────────────────────────────────────────────────────
+  'fit.nozzle': {
+    title: 'Nozzle',
+    meta: '0.2 · 0.4 · 0.6 · 0.8 mm · default 0.4',
+    what: 'Fills in a suggested fit clearance for your nozzle: -0.1, 0, +0.1 or +0.2 mm per side. It changes nothing else.',
+    why: 'Wider nozzles print holes smaller and pegs fatter, so they need more room. The suggestion is a starting point; adjust the clearance after a test print.',
+  },
+  'fit.clearance': {
+    title: 'Fit clearance',
+    meta: 'mm per side · default 0 · -0.2 to 0.6 in steps of 0.05',
+    what: 'Extra room on every mating surface: feet and pegs shrink, slots, channels and holes grow. 0 keeps each system\'s published fit.',
+    why: 'Raise it when parts are too tight to fit or need force; lower it when they rattle or fall out. Too much makes hooks and feet loose.',
+    note: 'French cleat hooks mate with wood, so they ignore it.',
   },
 
   // ── Base ────────────────────────────────────────────────────────────────

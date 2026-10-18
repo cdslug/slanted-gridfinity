@@ -90,8 +90,9 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 - Optional Gridfinity base profile
 - Optional end bin: a support wedge that fills the space at the end of a row
 - Vertical mounting: the same bin turned to hang on a wall, base to the wall
-  and slant rising, with the mating surface for one of seven wall systems
-  (see [Wall systems](#wall-systems))
+  and slant rising, for one of seven wall systems, printing without supports
+  (see [Vertical mounting](#vertical-mounting))
+- Print fit: a clearance setting, with nozzle presets from 0.2 to 0.8 mm
 - Wireframe and cross-section views, preset camera views on keys 0–6 (F fits the model)
 - Binary STL export
 - Light and dark themes
@@ -112,37 +113,125 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 | `vendor/three/` | three.js r162 and OrbitControls (MIT) |
 | `fonts/` | Space Grotesk and Space Mono (SIL OFL) |
 
-## Wall systems
+## Vertical mounting
 
-With Orientation set to Vertical, the bin's base faces the wall and carries
-the mating surface for the board you pick. Only the bin side is generated;
-use the board's own connectors or inserts. Each mount is spaced at the
-board's pitch and centred on the back, and the sidebar says how many fit.
+A vertical bin is the same slanted bin turned to hang on a wall. Its base
+goes against the wall board, its opening faces you, and the slant runs up,
+so the opening sits higher than the base and pens lean back toward the wall.
+The base carries the mating surface for the wall system you choose instead
+of plain Gridfinity feet.
+
+### Making one
+
+1. Under **Mounting**, set **Orientation** to **Vertical**. The offset axis,
+   base and end bin controls hide, since they only apply to drawer bins.
+2. Set **Bin size**. On a wall the first number is the width across the wall
+   and the second the height up it. **Height units** sets how far the bin
+   reaches out from the wall, and **Offset** how far the opening rises.
+3. Pick the **Wall system**. Some systems also have an **Attachment** choice
+   (below); the line under each picker says what fits on this bin and what
+   you need to print or buy.
+4. Under **Print Fit**, pick your **Nozzle**, and adjust **Fit clearance**
+   after a test print if parts are too tight or too loose.
+5. **Export STL** saves the bin and, when the attachment uses one, the
+   separate part. The download row says how many of that part to print.
+
+### Printing
+
+The bin exports in its hanging orientation; lay it on its back in your
+slicer, the same way a drawer bin prints on its base. Every system's default
+attachment prints that way with no supports: anything that would stand out
+of the back is a separate part instead, and the back only gets slots,
+channels or holes. Those are dovetails that narrow toward the bed, so each
+layer rests on the one below, and their ceilings are short bridges. The
+separate parts export lying in their own print orientation, chosen so their
+layers run along the hook where the load is.
+
+The moulded attachments stay available, but the hooks, pegs or hangers on
+the back need supports, and their layers run across the load.
+
+### Wall systems
+
+Only the bin side is generated; use each board's own connectors or inserts.
+Mounts are spaced at the board's pitch and centred on the back. A back too
+small for any mount gets none, and the sidebar says why.
 
 | System | What the back gets | Board pitch |
 | --- | --- | --- |
 | Gridfinity plate | Standard feet with 6.5 x 2.4 mm magnet holes, for a magnetic baseplate mounted on the wall | 42 mm |
 | openGrid | [Multiconnect](https://www.printables.com/model/987877) dovetail slots, open at the bottom | 28 mm |
 | Multiboard | Multiconnect dovetail slots | 25 mm |
-| IKEA SKÅDIS | One of five attachments, below | 40 mm |
-| Honeycomb Storage Wall | Tapered hex pegs that press into RostaP's printed HSW inserts | 40.9 mm across, 23.6 mm up |
-| GOEWS | V-edged hangers that slide down between the tile's cleats | 42 mm |
-| French cleat | A 45° hook block for 19 mm (3/4") plywood cleats, plus a spacer on tall bins | any |
+| IKEA SKÅDIS | One of five attachments | 40 mm |
+| Honeycomb Storage Wall | Channels for printed peg connectors, or moulded pegs | 40.9 mm across, 23.6 mm up |
+| GOEWS | Slots for printed hangers, or moulded hangers | 42 mm |
+| French cleat | A channel for a printed cleat bar, or a moulded hook, for 19 mm (3/4") plywood cleats | any |
 
-SKÅDIS has a choice of attachment, because the bin prints with its back on
-the bed and hooks moulded onto that face need supports and snap along their
-layers. All but the last keep the back flat and print without supports:
+### Attachments
 
-| Attachment | On the bin | You print or buy |
-| --- | --- | --- |
-| Dovetail pegs (default) | Dovetail channels across the back, open at both ends, after [dtphantom's peg system](https://www.printables.com/model/283732) (CC BY) | Pegs, exported as their own STL and printed flat, so their layers run along the hook |
-| Multiconnect | Multiconnect slots 40 mm apart | David D's [Multiconnect SKÅDIS plugs](https://www.printables.com/model/1111567) |
-| T-nut screws | M2.5 screw holes, one per slot | [6d6178's Skadis T-Nuts](https://www.printables.com/model/228663), M2.5 screws and nuts; alignment washers are exported |
-| Universal Hook | 5 x 10 and 5 x 5 mm holes, 25 mm apart, through a 5 mm back | CSD_Salzburg's Universal Hook, printed flat |
-| Moulded hooks | Hooks on the back, after [skadisgen](https://github.com/tohaimate/skadisgen)'s peg | Nothing, but print with supports |
+| System | Attachment | On the bin | You print or buy |
+| --- | --- | --- | --- |
+| SKÅDIS | **Dovetail pegs** (default) | Dovetail channels across the back, after [dtphantom's peg system](https://www.printables.com/model/283732) | Pegs, exported, printed flat |
+| SKÅDIS | Multiconnect | Multiconnect slots 40 mm apart | David D's [Multiconnect SKÅDIS plugs](https://www.printables.com/model/1111567) |
+| SKÅDIS | T-nut screws | M2.5 screw holes, one per slot | [6d6178's Skadis T-Nuts](https://www.printables.com/model/228663), M2.5 screws and nuts; alignment washers are exported |
+| SKÅDIS | Universal Hook | 5 x 10 and 5 x 5 mm holes, 25 mm apart, through a 5 mm back | CSD_Salzburg's Universal Hook |
+| SKÅDIS | Moulded hooks | Hooks on the back, after [skadisgen](https://github.com/tohaimate/skadisgen)'s peg | Nothing; needs supports |
+| HSW | **Slide-on pegs** (default) | A horizontal dovetail channel per row of pegs | Connectors, exported, printed standing on the peg's tip, plus RostaP's HSW inserts |
+| HSW | Moulded pegs | Hex pegs on the back | HSW inserts; needs supports |
+| GOEWS | **Slide-on hangers** (default) | Vertical dovetail slots, open at the bottom | Hangers, exported, printed standing |
+| GOEWS | Moulded hangers | Hangers on the back | Nothing; needs supports |
+| French cleat | **Slide-in cleat bar** (default) | Horizontal dovetail channels | Cleat bar, plus a spacer bar on tall bins, exported in one file |
+| French cleat | Moulded hook | The hook and spacer on the back | Nothing; needs supports |
 
-The geometry is written here from each system's published dimensions; no code
-is copied from these projects. Thanks to their authors:
+### Hanging it
+
+- **Multiconnect** (openGrid, Multiboard, SKÅDIS plugs): fit the connectors
+  to the board, lower the bin onto them and slide it down until it clicks.
+- **SKÅDIS dovetail pegs:** slide a peg into the channel for each board slot,
+  40 mm apart, push them through the slots, then drop the bin so the pegs'
+  heads hook behind the board.
+- **SKÅDIS T-nuts:** push a T-nut through each slot, add the washer, and
+  screw through the bin's back from inside; the nut turns and locks.
+- **HSW:** click the inserts into the board. Slide a connector into the
+  channels for each peg, space them 40.9 mm apart (one cell), and press the
+  bin onto the inserts so every peg goes in at once.
+- **GOEWS:** seat a hanger in each tile window and slide it down onto the
+  cleats, then lower the bin onto the hangers until it rests on them.
+- **French cleat:** slide the cleat bar (and spacer) into the channels from
+  the side, then drop the bin over the wall cleat.
+- **Gridfinity plate:** put 6 x 2 mm magnets in the feet; the bin seats in a
+  magnetic baseplate screwed to the wall.
+
+### Print fit
+
+Clearances follow each system's published fit, which assumes a 0.4 mm
+nozzle. **Fit clearance** adds room on every mating surface, in mm per side
+(-0.2 to 0.6): feet, pegs, hooks and hangers shrink, and slots, channels and
+holes grow. **Nozzle** fills in a starting value: -0.1, 0, +0.1 or +0.2 mm for
+0.2, 0.4, 0.6 or 0.8 mm nozzles, since wider lines print holes smaller and
+pegs fatter. That rule of thumb is a starting point; tune it after a test
+print. Fit clearance also applies to drawer bins' Gridfinity feet. French
+cleat hooks mate with wood and ignore it.
+
+### Not yet tested in print
+
+The mounts follow each system's published or measured dimensions and every
+generated part is a closed, support-free solid, but none has been test
+printed yet. In particular:
+
+- The HSW connector and the GOEWS hanger are designs of this project on the
+  boards' published dimensions. The HSW connector's peg prints with its
+  layers across its length.
+- The Universal Hook option matches CSD_Salzburg's published hole pattern;
+  their hook itself wasn't available to check against.
+- The detent dot in Multiconnect slots hangs from the slot ceiling, so its
+  1 mm tip starts in mid-air when the bin prints on its back.
+
+Reports from real prints are welcome as issues.
+
+### Credits
+
+The geometry is written here from each system's published dimensions; no
+code is copied from these projects. Thanks to their authors:
 Multiconnect by David D (CC BY);
 [openGrid](https://github.com/openGrid-3D);
 Multiboard by Keep Making (compatible accessory, not affiliated);
