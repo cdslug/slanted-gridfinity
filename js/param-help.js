@@ -58,6 +58,23 @@ export const PARAM_HELP = {
     meta: 'grid units, X × Y · default 2 × 2 · 1 to 20 (0.5 to 20 with Half)',
     what: 'The footprint of the bin at its base. At the standard pitch a 2 × 2 bin is 83.5 mm square outside.',
     why: 'Size it to what you store. The top shifts by the offset, so along the offset axis the bin and its end bin take this size plus the offset in drawer length.',
+    note: 'Mounted vertically, X is the width across the wall and Y the height up it.',
+  },
+
+  // ── Mounting ────────────────────────────────────────────────────────────
+  'mount.orientation': {
+    title: 'Orientation',
+    meta: 'Horizontal · Vertical · default Horizontal',
+    what: 'Horizontal stands the bin in a drawer on Gridfinity feet. Vertical turns it to hang on a wall: the base faces the wall, the opening faces you and the slant rises up the wall.',
+    why: 'Choose Vertical to keep pens on a wall board. The offset axis, base and end bin don\'t apply there, so they hide.',
+    note: 'The STL keeps this orientation; turn it in your slicer for printing.',
+  },
+  'mount.system': {
+    title: 'Wall system',
+    meta: '7 systems · default openGrid',
+    what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), SKÅDIS hooks, HSW pegs, GOEWS hangers, a French cleat hook, or Gridfinity feet with magnet holes.',
+    why: 'Pick the board you have. Only the bin side is made; use the board\'s own connectors or HSW inserts. The line below says what fits.',
+    note: 'Mounts sit at the board\'s pitch, centred on the back. A back too small for one gets none.',
   },
 
   // ── Height ──────────────────────────────────────────────────────────────

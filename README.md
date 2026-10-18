@@ -89,6 +89,9 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 - Adjustable wall thickness and corner resolution
 - Optional Gridfinity base profile
 - Optional end bin: a support wedge that fills the space at the end of a row
+- Vertical mounting: the same bin turned to hang on a wall, base to the wall
+  and slant rising, with the mating surface for one of seven wall systems
+  (see [Wall systems](#wall-systems))
 - Wireframe and cross-section views, preset camera views on keys 0–6 (F fits the model)
 - Binary STL export
 - Light and dark themes
@@ -100,12 +103,42 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 | `index.html` | Page layout and controls |
 | `js/main.js` | Scene, UI wiring and app state |
 | `js/gridfinity-geometry.js` | Bin and end-bin mesh generation |
+| `js/wall-mounts.js` | Mating surfaces for the wall systems |
+| `js/mesh-shapes.js` | Lofted solids from 2D sections (slots, pegs, holes) |
 | `js/camera-controls.js` | Orbit, pan, zoom and preset views |
 | `js/stl-export.js` | Binary STL writer and download |
 | `css/styles.css` | Theme tokens and layout |
 | `src/app.py` | Local launcher: static server plus browser tab |
 | `vendor/three/` | three.js r162 and OrbitControls (MIT) |
 | `fonts/` | Space Grotesk and Space Mono (SIL OFL) |
+
+## Wall systems
+
+With Orientation set to Vertical, the bin's base faces the wall and carries
+the mating surface for the board you pick. Only the bin side is generated;
+use the board's own connectors or inserts. Each mount is spaced at the
+board's pitch and centred on the back, and the sidebar says how many fit.
+
+| System | What the back gets | Board pitch |
+| --- | --- | --- |
+| Gridfinity plate | Standard feet with 6.5 x 2.4 mm magnet holes, for a magnetic baseplate mounted on the wall | 42 mm |
+| openGrid | [Multiconnect](https://www.printables.com/model/987877) dovetail slots, open at the bottom | 28 mm |
+| Multiboard | Multiconnect dovetail slots | 25 mm |
+| IKEA SKÅDIS | Hooks that pass through the slots and drop to lock | 40 mm |
+| Honeycomb Storage Wall | Tapered hex pegs that press into RostaP's printed HSW inserts | 40.9 mm across, 23.6 mm up |
+| GOEWS | V-edged hangers that slide down between the tile's cleats | 42 mm |
+| French cleat | A 45° hook block for 19 mm (3/4") plywood cleats, plus a spacer on tall bins | any |
+
+The geometry is written here from each system's published dimensions; no code
+is copied from these projects. Thanks to their authors:
+Multiconnect by David D (CC BY);
+[openGrid](https://github.com/openGrid-3D);
+Multiboard by Keep Making (compatible accessory, not affiliated);
+[skadisgen](https://github.com/tohaimate/skadisgen) for the SKÅDIS hook profile (Apache-2.0);
+Honeycomb Storage Wall by RostaP;
+GOEWS by MrExo3D (CC BY) and [goews-rebuilt-openscad](https://github.com/jimfunk/goews-rebuilt-openscad);
+[french_cleats](https://github.com/atiretoo/french_cleats) for the cleat profile;
+[gridfinity-rebuilt-openscad](https://github.com/kennetek/gridfinity-rebuilt-openscad) for the magnet holes.
 
 ## Embedding
 
