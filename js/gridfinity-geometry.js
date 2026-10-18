@@ -5,6 +5,11 @@
  *   1. A slanted bin (top cross-section offset from bottom)
  *   2. An optional end bin (wedge that fills the gap under the slant)
  *
+ * The slanted bin can also be built for a wall: the same bin turned so its
+ * base faces the wall (-X), its opening faces out (+X) and the slant runs up
+ * (+Z). Its base then carries the chosen wall system's mating surface
+ * (wall-mounts.js) instead of plain Gridfinity feet.
+ *
  * Each mesh is a set of closed shells (the body, plus one per base foot,
  * touching the body's underside): every edge is shared by exactly two
  * triangles with opposite winding, so back faces never need drawing.
@@ -21,6 +26,9 @@
  *   - Z-up, XY is the grid plane
  *   - Main bin centered at XY origin (at the base)
  */
+
+import { roundedRectPoints, circlePoints, loft } from './mesh-shapes.js';
+import { addWallMount, WALL_SYSTEMS, DEFAULT_WALL_SYSTEM } from './wall-mounts.js';
 
 // ---------------------------------------------------------------------------
 // Gridfinity spec constants (from kennetek/gridfinity-rebuilt-openscad)
@@ -45,6 +53,14 @@ const BASE_UNIT_PROFILE_LEVELS = [
 
 const BRIDGE_Z_BOTTOM = -BASE_HEIGHT_MM + 4.75; // = -2.25
 
+// Magnet holes for a magnetic (e.g. wall-mounted) baseplate: 6 x 2mm magnets
+// in 6.5 x 2.4mm holes, open on the foot's underside, centred 8mm in from
+// the grid lines of each cell, matching the baseplate's own magnets.
+const MAGNET_RADIUS = 3.25;
+const MAGNET_DEPTH = 2.4;
+const MAGNET_FROM_GRID_LINE = 8;
+const MAGNET_SEGMENTS = 24;
+
 // ---------------------------------------------------------------------------
 // Dimension helpers
 // ---------------------------------------------------------------------------
@@ -61,33 +77,6 @@ export function interiorHeightMM(hUnits) {
 
 export function interiorWidthMM(units, wallT, gridMM = GRID_MM) {
   return binOuterMM(units, gridMM) - 2 * wallT;
-}
-
-// ---------------------------------------------------------------------------
-// Rounded rectangle perimeter (CCW winding from +Z)
-// ---------------------------------------------------------------------------
-
-function roundedRectPoints(width, height, radius, segments = 8) {
-  const pts = [];
-  const hw = width / 2, hh = height / 2;
-  const r = Math.max(0.01, Math.min(radius, hw, hh));
-
-  const corners = [
-    { cx:  (hw - r), cy: -(hh - r), a0: -Math.PI / 2, a1: 0 },
-    { cx:  (hw - r), cy:  (hh - r), a0: 0,             a1: Math.PI / 2 },
-    { cx: -(hw - r), cy:  (hh - r), a0: Math.PI / 2,   a1: Math.PI },
-    { cx: -(hw - r), cy: -(hh - r), a0: Math.PI,       a1: 3 * Math.PI / 2 },
-  ];
-
-  for (const { cx, cy, a0, a1 } of corners) {
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const a = a0 + t * (a1 - a0);
-      pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
-    }
-  }
-
-  return pts;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +109,22 @@ class MeshBuilder {
     p[i + 3] = b[0]; p[i + 4] = b[1]; p[i + 5] = b[2];
     p[i + 6] = c[0]; p[i + 7] = c[1]; p[i + 8] = c[2];
     this.length = i + 9;
+  }
+
+  // Move every vertex written so far through `fn([x, y, z]) → [x, y, z]`.
+  // `fn` must be a rotation plus a shift, so faces keep facing outward.
+  mapPoints(fn) {
+    const p = this.positions;
+    for (let i = 0; i < this.length; i += 3) {
+      const [x, y, z] = fn([p[i], p[i + 1], p[i + 2]]);
+      p[i] = x; p[i + 1] = y; p[i + 2] = z;
+    }
+  }
+
+  minZ() {
+    let m = Infinity;
+    for (let i = 2; i < this.length; i += 3) m = Math.min(m, this.positions[i]);
+    return Number.isFinite(m) ? m : 0;
   }
 
   // Trim to size and shift up by `dz` so the bottom-most surface rests on Z = 0.
@@ -186,9 +191,50 @@ function addRingFace(mesh, outerRing, innerRing) {
 // With `divisions` > 1 each grid unit gets divisions x divisions smaller feet
 // (like kennetek's half_grid), so fractional-width bins still seat in a
 // standard baseplate.
+//
+// With `magnets`, each foot gets a hole under every baseplate magnet it
+// covers: four in a whole foot, one in each half-size foot. The foot is then
+// two shells: the bottom MAGNET_DEPTH with the holes through it, and the rest
+// on top, whose underside is the holes' ceiling.
 // ---------------------------------------------------------------------------
 
-function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions) {
+// Baseplate magnet positions along one axis of a bin `units` wide, its first
+// grid line at -units * gridMM / 2.
+function magnetPositions(units, gridMM) {
+  const out = [];
+  const start = -units * gridMM / 2;
+  for (let k = 0; k < Math.ceil(units - 1e-9); k++) {
+    out.push(start + k * gridMM + MAGNET_FROM_GRID_LINE, start + (k + 1) * gridMM - MAGNET_FROM_GRID_LINE);
+  }
+  return out;
+}
+
+function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments) {
+  const ring = (inset) => roundedRectPoints(
+    footTop - 2 * inset, footTop - 2 * inset, Math.max(0.01, BASE_CORNER_RADIUS - inset), cornerSegments, cx, cy,
+  );
+  const insetAt = (dz) => {
+    const L = BASE_UNIT_PROFILE_LEVELS;
+    for (let i = 0; i < L.length - 1; i++) {
+      if (dz <= L[i + 1].dz) {
+        const f = (dz - L[i].dz) / (L[i + 1].dz - L[i].dz);
+        return L[i].inset + f * (L[i + 1].inset - L[i].inset);
+      }
+    }
+    return L[L.length - 1].inset;
+  };
+  const toWorld = (x, y, dz) => [x, y, -BASE_HEIGHT_MM + dz];
+  const circles = holes.map(([hx, hy]) => circlePoints(hx, hy, MAGNET_RADIUS, MAGNET_SEGMENTS));
+
+  // Profile levels below and above the hole ceiling
+  const levels = BASE_UNIT_PROFILE_LEVELS.map(l => l.dz);
+  const lower = [...levels.filter(dz => dz < MAGNET_DEPTH), MAGNET_DEPTH];
+  const upper = [MAGNET_DEPTH, ...levels.filter(dz => dz > MAGNET_DEPTH)];
+  loft(mesh, lower.map(dz => ({ t: dz, contour: ring(insetAt(dz)), holes: circles })), toWorld);
+  loft(mesh, upper.map(dz => ({ t: dz, contour: ring(insetAt(dz)) })), toWorld);
+}
+
+function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false) {
   const [cox, coy] = centerOffset;
   const pitch = gridMM / divisions;
   const footTop = pitch - TOLERANCE_MM;
@@ -199,6 +245,19 @@ function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divis
     for (let iy = 0; iy < feetY; iy++) {
       const cx = cox + (ix - (feetX - 1) / 2) * pitch;
       const cy = coy + (iy - (feetY - 1) / 2) * pitch;
+
+      if (magnets) {
+        // Holes that sit fully on the foot's flat underside
+        const reach = footTop / 2 - BASE_UNIT_PROFILE_LEVELS[0].inset - MAGNET_RADIUS - 0.4;
+        const holes = [];
+        for (const mx of magnetPositions(gridX, gridMM)) {
+          for (const my of magnetPositions(gridY, gridMM)) {
+            if (Math.abs(mx + cox - cx) <= reach && Math.abs(my + coy - cy) <= reach) holes.push([mx + cox, my + coy]);
+          }
+        }
+        addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments);
+        continue;
+      }
 
       const unitRings = [];
       for (const { dz, inset } of BASE_UNIT_PROFILE_LEVELS) {
@@ -244,11 +303,24 @@ export function generateSlantedBin({
   offsetAxis = 'x',
   wallThickness = 0.82,
   includeBase = true,
+  orientation = 'horizontal',
+  wallSystem = DEFAULT_WALL_SYSTEM,
   cornerSegments = CORNER_SEGMENTS,
   gridMM = GRID_MM,
   divisions = 1,
 } = {}) {
   const mesh = new MeshBuilder();
+
+  // On a wall the bin is built as usual with its slant along local X, then
+  // turned: local X (the slant) goes up, local Z (the height) out from the
+  // wall. gridX is then the width across the wall and gridY the height up it.
+  const vertical = orientation === 'vertical';
+  if (vertical) {
+    if (!WALL_SYSTEMS[wallSystem]) wallSystem = DEFAULT_WALL_SYSTEM;
+    [gridX, gridY] = [gridY, gridX];
+    offsetAxis = 'x';
+    includeBase = wallSystem === 'gridfinity';
+  }
 
   const outerW = binOuterMM(gridX, gridMM);
   const outerD = binOuterMM(gridY, gridMM);
@@ -266,7 +338,7 @@ export function generateSlantedBin({
 
   // --- BASE ---
   if (includeBase) {
-    addFeet(mesh, gridX, gridY, [0, 0], cornerSegments, gridMM, divisions);
+    addFeet(mesh, gridX, gridY, [0, 0], cornerSegments, gridMM, divisions, vertical);
   }
 
   // --- WALLS ---
@@ -289,9 +361,20 @@ export function generateSlantedBin({
   const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
   addFan(mesh, wallInnerBottom, floorCenter, false);
 
-  // --- Place on the build plate & dimensions ---
+  // --- Place on the build plate (or the wall) & dimensions ---
   const floorZ = plateShift(includeBase);
-  const result = mesh.finish(floorZ);
+  let mount = null;
+  let result;
+  if (vertical) {
+    // Back face (the base's underside) on the wall plane X = 0, slant up +Z;
+    // (x, y, z) -> (z, -y, x) is a rotation, so faces keep facing outward.
+    mesh.mapPoints(([x, y, z]) => [z + floorZ, -y, x]);
+    mount = { system: wallSystem, label: WALL_SYSTEMS[wallSystem].label,
+      ...addWallMount(mesh, wallSystem, { W: outerD, H: outerW, R: BASE_CORNER_RADIUS }) };
+    result = mesh.finish(-mesh.minZ());
+  } else {
+    result = mesh.finish(floorZ);
+  }
 
   const slantAngleDeg = wallH > 0
     ? Math.atan2(totalOffset, wallH) * (180 / Math.PI) : 0;
@@ -319,6 +402,8 @@ export function generateSlantedBin({
       maxPenLength,
       wallThickness: t,
       gridMM,
+      orientation: vertical ? 'vertical' : 'horizontal',
+      mount,
     },
   };
 }

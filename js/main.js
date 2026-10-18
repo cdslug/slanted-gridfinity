@@ -17,6 +17,7 @@ import {
   GRID_MM, HEIGHT_UNIT_MM, BASE_HEIGHT_MM,
   binOuterMM, interiorHeightMM, interiorWidthMM,
 } from './gridfinity-geometry.js';
+import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
@@ -243,9 +244,10 @@ function updateBinMesh() {
     updateDimensionInfo(result.dimensions);
   }
 
-  // End bin — only exists when the bin is slanted; it doesn't depend on wall thickness
-  const { wallThickness, ...endParams } = params;
-  const endKey = params.offsetUnits > 0 ? JSON.stringify(endParams) : null;
+  // End bin — only exists when a floor bin is slanted; it doesn't depend on
+  // wall thickness or the wall mount
+  const { wallThickness, orientation, wallSystem, ...endParams } = params;
+  const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
     if (endKey) {
@@ -321,6 +323,17 @@ function updateThemeToggle() {
 // UI parameter reading
 // ---------------------------------------------------------------------------
 
+// Choices read from the page are checked against what the generator knows.
+function readOrientation() {
+  const v = document.querySelector('input[name="orientation"]:checked')?.value;
+  return v === 'vertical' ? 'vertical' : 'horizontal';
+}
+
+function readWallSystem() {
+  const v = document.getElementById('wall-system').value;
+  return Object.hasOwn(WALL_SYSTEMS, v) ? v : DEFAULT_WALL_SYSTEM;
+}
+
 // Size inputs that count grid units; fractional when divisions > 1.
 const UNIT_INPUT_IDS = ['grid-x', 'grid-y', 'end-grid-x', 'end-grid-y'];
 
@@ -385,6 +398,8 @@ function readParams() {
     offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value || 'x',
     wallThickness: readNumber('wall-thickness', 0.82),
     includeBase: document.getElementById('include-base').checked,
+    orientation: readOrientation(),
+    wallSystem: readWallSystem(),
     endGridX: readUnits('end-grid-x', divisions),
     endGridY: readUnits('end-grid-y', divisions),
   };
@@ -395,18 +410,37 @@ function readParams() {
 // ---------------------------------------------------------------------------
 
 function updateDimensionInfo(dims) {
-  const rows = [
-    ['Max pen length', `${dims.maxPenLength.toFixed(1)} mm`, 'highlight', 'dims.maxPen'],
-    ['Outer footprint', `${dims.outerWidth.toFixed(1)} x ${dims.outerDepth.toFixed(1)} mm`],
-    ['Interior', `${dims.innerWidth.toFixed(1)} x ${dims.innerDepth.toFixed(1)} mm`],
-    ['Total height', `${dims.totalHeight.toFixed(1)} mm`],
-    ['Interior height', `${dims.interiorHeight.toFixed(1)} mm`],
-    ['Base height', `${dims.baseHeight.toFixed(1)} mm`],
-    ['Total offset', `${dims.totalOffset.toFixed(1)} mm`],
+  const mm = (v) => `${v.toFixed(1)} mm`;
+  const pair = (a, b) => `${a.toFixed(1)} x ${b.toFixed(1)} mm`;
+  // On a wall the bin is turned: its width and depth become width and
+  // height on the wall (gridfinity-geometry.js), and its height the reach.
+  const rows = dims.orientation === 'vertical' ? [
+    ['Max pen length', mm(dims.maxPenLength), 'highlight', 'dims.maxPen'],
+    ['Back (W x H)', pair(dims.outerDepth, dims.outerWidth)],
+    ['Opening', pair(dims.innerDepth, dims.innerWidth)],
+    ['Out from wall', mm(dims.totalHeight)],
+    ['Interior depth', mm(dims.interiorHeight)],
+    ['Mount', dims.mount.fits ? dims.mount.label : 'does not fit'],
+    ['Offset up the wall', mm(dims.totalOffset)],
+    ['Slant angle', `${dims.slantAngleDeg.toFixed(1)}° from level`],
+    ['Slant diagonal', mm(dims.slantDiagonal)],
+    ['Wall thickness', `${dims.wallThickness.toFixed(2)} mm`],
+  ] : [
+    ['Max pen length', mm(dims.maxPenLength), 'highlight', 'dims.maxPen'],
+    ['Outer footprint', pair(dims.outerWidth, dims.outerDepth)],
+    ['Interior', pair(dims.innerWidth, dims.innerDepth)],
+    ['Total height', mm(dims.totalHeight)],
+    ['Interior height', mm(dims.interiorHeight)],
+    ['Base height', mm(dims.baseHeight)],
+    ['Total offset', mm(dims.totalOffset)],
     ['Slant angle', `${dims.slantAngleDeg.toFixed(1)}° from vertical`],
-    ['Slant diagonal', `${dims.slantDiagonal.toFixed(1)} mm`],
+    ['Slant diagonal', mm(dims.slantDiagonal)],
     ['Wall thickness', `${dims.wallThickness.toFixed(2)} mm`],
   ];
+  // What the mount added, or why it couldn't, under the wall system picker
+  document.getElementById('wall-system-val').textContent = dims.mount
+    ? (dims.mount.fits ? dims.mount.text || 'magnet holes in the feet' : `none: ${dims.mount.text}`)
+    : '';
   document.getElementById('dim-info').replaceChildren(...rows.map(([label, value, extra, help]) => {
     const row = document.createElement('div');
     row.className = extra ? `dim-row ${extra}` : 'dim-row';
@@ -470,6 +504,17 @@ function bindControls() {
     scheduleRebuild();
   });
 
+  // Floor or wall: switch the controls that only apply to one, then reframe
+  for (const radio of document.querySelectorAll('input[name="orientation"]')) {
+    radio.addEventListener('change', () => {
+      applyOrientation();
+      scheduleRebuild();
+      flushRebuild();
+      cameraNav.setView('iso');
+    });
+  }
+  document.getElementById('wall-system').addEventListener('change', scheduleRebuild);
+
   // Radio buttons
   for (const radio of document.querySelectorAll('input[name="offset-axis"]')) {
     radio.addEventListener('change', () => {
@@ -491,7 +536,10 @@ function bindControls() {
     const wantEndBin = document.getElementById('download-end-bin').checked;
     const params = readParams();
     const unitTag = params.gridMM !== GRID_MM ? `_unit${params.gridMM}mm` : '';
-    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${params.offsetAxis}${unitTag}`;
+    const vertical = params.orientation === 'vertical';
+    const axisTag = vertical ? 'up' : params.offsetAxis;
+    const wallTag = vertical ? `_wall-${params.wallSystem}` : '';
+    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${axisTag}${unitTag}${wallTag}`;
 
     // Main bin
     if (wantBin) {
@@ -512,6 +560,19 @@ function bindControls() {
     const expanded = document.getElementById('info-overlay').classList.toggle('expanded');
     e.currentTarget.setAttribute('aria-expanded', String(expanded));
   });
+}
+
+// On a wall the slant always runs up, the mount replaces the base, and
+// there's no row to end, so those controls only show for a floor bin.
+function applyOrientation() {
+  const vertical = readOrientation() === 'vertical';
+  const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
+  show('wall-system-row', vertical);
+  show('offset-axis-row', !vertical);
+  show('base-section', !vertical);
+  show('end-bin-section', !vertical);
+  document.getElementById('orientation-val').textContent = vertical ? 'on a wall' : 'in a drawer';
+  document.getElementById('grid-size-val').textContent = vertical ? 'width × height on the wall' : 'X × Y units';
 }
 
 function updateValueDisplays() {
@@ -543,7 +604,9 @@ function updateValueDisplays() {
   const totalOff = ou * unit;
   const intW = interiorWidthMM(gx, wt, unit);
   const intD = interiorWidthMM(gy, wt, unit);
-  const axis = document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
+  // On a wall the slant runs up the bin's Y size (its height on the wall)
+  const axis = readOrientation() === 'vertical'
+    ? 'y' : document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
   // Pen spans from bottom near-corner to top far-corner of interior
   const spanOffset = totalOff + (axis === 'x' ? intW : intD);
   const spanCross = axis === 'x' ? intD : intW;
@@ -597,6 +660,7 @@ function renderFrame() {
 // ---------------------------------------------------------------------------
 
 syncEndBinToOffset();
+applyOrientation();
 updateValueDisplays();
 createModelToggles();
 updateBinMesh();
