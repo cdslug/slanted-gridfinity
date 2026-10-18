@@ -29,7 +29,7 @@
 
 import { roundedRectPoints, circlePoints, loft, writeCap, writeHoleWall } from './mesh-shapes.js';
 import {
-  planWallMount, WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, SKADIS_METHODS, DEFAULT_SKADIS_METHOD,
+  planWallMount, WALL_SYSTEMS, DEFAULT_WALL_SYSTEM,
 } from './wall-mounts.js';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +62,16 @@ const MAGNET_RADIUS = 3.25;
 const MAGNET_DEPTH = 2.4;
 const MAGNET_FROM_GRID_LINE = 8;
 const MAGNET_SEGMENTS = 24;
+
+// Fit clearance: extra mm per side on every mating surface, for nozzles and
+// printers that print holes small and pegs fat (positive = looser). Feet
+// shrink, holes grow; 0 keeps the published fits. Same bounds as the input.
+export const FIT_CLEARANCE_MIN = -0.2;
+export const FIT_CLEARANCE_MAX = 0.6;
+const clampFit = (c) => (Number.isFinite(c) ? Math.min(FIT_CLEARANCE_MAX, Math.max(FIT_CLEARANCE_MIN, c)) : 0);
+// A foot profile level's inset, moved in by the clearance but never out past
+// the bin's own outline at the top
+const footInset = (inset, fit) => Math.max(0, inset + fit);
 
 // ---------------------------------------------------------------------------
 // Dimension helpers
@@ -211,10 +221,13 @@ function magnetPositions(units, gridMM) {
   return out;
 }
 
-function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments) {
-  const ring = (inset) => roundedRectPoints(
-    footTop - 2 * inset, footTop - 2 * inset, Math.max(0.01, BASE_CORNER_RADIUS - inset), cornerSegments, cx, cy,
-  );
+function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments, fit) {
+  const ring = (profileInset) => {
+    const inset = footInset(profileInset, fit);
+    return roundedRectPoints(
+      footTop - 2 * inset, footTop - 2 * inset, Math.max(0.01, BASE_CORNER_RADIUS - inset), cornerSegments, cx, cy,
+    );
+  };
   const insetAt = (dz) => {
     const L = BASE_UNIT_PROFILE_LEVELS;
     for (let i = 0; i < L.length - 1; i++) {
@@ -226,7 +239,7 @@ function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments) {
     return L[L.length - 1].inset;
   };
   const toWorld = (x, y, dz) => [x, y, -BASE_HEIGHT_MM + dz];
-  const circles = holes.map(([hx, hy]) => circlePoints(hx, hy, MAGNET_RADIUS, MAGNET_SEGMENTS));
+  const circles = holes.map(([hx, hy]) => circlePoints(hx, hy, MAGNET_RADIUS + fit, MAGNET_SEGMENTS));
 
   // Profile levels below and above the hole ceiling
   const levels = BASE_UNIT_PROFILE_LEVELS.map(l => l.dz);
@@ -236,7 +249,7 @@ function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments) {
   loft(mesh, upper.map(dz => ({ t: dz, contour: ring(insetAt(dz)) })), toWorld);
 }
 
-function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false) {
+function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false, fit = 0) {
   const [cox, coy] = centerOffset;
   const pitch = gridMM / divisions;
   const footTop = pitch - TOLERANCE_MM;
@@ -250,20 +263,21 @@ function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divis
 
       if (magnets) {
         // Holes that sit fully on the foot's flat underside
-        const reach = footTop / 2 - BASE_UNIT_PROFILE_LEVELS[0].inset - MAGNET_RADIUS - 0.4;
+        const reach = footTop / 2 - footInset(BASE_UNIT_PROFILE_LEVELS[0].inset, fit) - (MAGNET_RADIUS + fit) - 0.4;
         const holes = [];
         for (const mx of magnetPositions(gridX, gridMM)) {
           for (const my of magnetPositions(gridY, gridMM)) {
             if (Math.abs(mx + cox - cx) <= reach && Math.abs(my + coy - cy) <= reach) holes.push([mx + cox, my + coy]);
           }
         }
-        addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments);
+        addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments, fit);
         continue;
       }
 
       const unitRings = [];
-      for (const { dz, inset } of BASE_UNIT_PROFILE_LEVELS) {
-        const z = -BASE_HEIGHT_MM + dz;
+      for (const level of BASE_UNIT_PROFILE_LEVELS) {
+        const z = -BASE_HEIGHT_MM + level.dz;
+        const inset = footInset(level.inset, fit);
         const w = footTop - 2 * inset;
         const r = Math.max(0.01, BASE_CORNER_RADIUS - inset);
         unitRings.push(makeRing(z, w, w, r, [cx, cy], cornerSegments));
@@ -307,12 +321,14 @@ export function generateSlantedBin({
   includeBase = true,
   orientation = 'horizontal',
   wallSystem = DEFAULT_WALL_SYSTEM,
-  skadisMethod = DEFAULT_SKADIS_METHOD,
+  mountMethod = null,
+  fitClearance = 0,
   cornerSegments = CORNER_SEGMENTS,
   gridMM = GRID_MM,
   divisions = 1,
 } = {}) {
   const mesh = new MeshBuilder();
+  const fit = clampFit(fitClearance);
 
   // On a wall the bin is built as usual with its slant along local X, then
   // turned: local X (the slant) goes up, local Z (the height) out from the
@@ -320,7 +336,6 @@ export function generateSlantedBin({
   const vertical = orientation === 'vertical';
   if (vertical) {
     if (!WALL_SYSTEMS[wallSystem]) wallSystem = DEFAULT_WALL_SYSTEM;
-    if (!SKADIS_METHODS[skadisMethod]) skadisMethod = DEFAULT_SKADIS_METHOD;
     [gridX, gridY] = [gridY, gridX];
     offsetAxis = 'x';
     includeBase = wallSystem === 'gridfinity';
@@ -342,7 +357,7 @@ export function generateSlantedBin({
 
   // --- BASE ---
   if (includeBase) {
-    addFeet(mesh, gridX, gridY, [0, 0], cornerSegments, gridMM, divisions, vertical);
+    addFeet(mesh, gridX, gridY, [0, 0], cornerSegments, gridMM, divisions, vertical, fit);
   }
 
   // --- WALLS ---
@@ -361,7 +376,7 @@ export function generateSlantedBin({
   // Wall (u, v) on the back is local (x, y) = (v, -u), before the turn below.
   const plan = vertical
     ? planWallMount(wallSystem, { W: outerD, H: outerW, R: BASE_CORNER_RADIUS },
-      { skadisMethod, slabMM: -BRIDGE_Z_BOTTOM })
+      { method: mountMethod, slabMM: -BRIDGE_Z_BOTTOM, fit })
     : null;
   const floorHoles = (plan?.holes ?? []).map(pts => pts.map(([u, v]) => [v, -u]));
 
@@ -451,11 +466,13 @@ export function generateWallPart({
   gridY = 2,
   gridMM = GRID_MM,
   wallSystem = DEFAULT_WALL_SYSTEM,
-  skadisMethod = DEFAULT_SKADIS_METHOD,
+  mountMethod = null,
+  fitClearance = 0,
 } = {}) {
   // The same back face as the vertical bin: gridX across the wall, gridY up it
   const back = { W: binOuterMM(gridX, gridMM), H: binOuterMM(gridY, gridMM), R: BASE_CORNER_RADIUS };
-  const plan = planWallMount(wallSystem, back, { skadisMethod, slabMM: -BRIDGE_Z_BOTTOM });
+  const plan = planWallMount(wallSystem, back,
+    { method: mountMethod, slabMM: -BRIDGE_Z_BOTTOM, fit: clampFit(fitClearance) });
   if (!plan.fits || !plan.part) return null;
   const mesh = new MeshBuilder(512);
   plan.part.build(mesh);
@@ -483,10 +500,12 @@ export function generateEndBin({
   cornerSegments = CORNER_SEGMENTS,
   endGridX = 2,
   endGridY = 2,
+  fitClearance = 0,
   gridMM = GRID_MM,
   divisions = 1,
 } = {}) {
   const mesh = new MeshBuilder();
+  const fit = clampFit(fitClearance);
 
   const mainOuterW = binOuterMM(gridX, gridMM);
   const mainOuterD = binOuterMM(gridY, gridMM);
@@ -531,7 +550,7 @@ export function generateEndBin({
 
   // --- BASE ---
   if (includeBase) {
-    addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions);
+    addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions, false, fit);
   }
 
   // --- SOLID WEDGE (z=0 to slant plane) ---

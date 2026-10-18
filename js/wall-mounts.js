@@ -13,6 +13,12 @@
  * reach inside), and optionally a separate small part to print, such as a
  * peg printed flat so its layers run along the hook.
  *
+ * `fit` is extra clearance in mm per side on every mating surface (positive
+ * = looser): slots, channels and holes on the bin grow by it, and pegs,
+ * hooks and hangers shrink by it, against the board or the bin. 0 keeps
+ * each system's published fit. The French cleat mates with wood, so it
+ * ignores it.
+ *
  * Dimensions are the systems' published interfaces, re-implemented here (no
  * code is copied from the sources named below):
  *   Multiconnect   slot by David D (CC BY): back-slot drawing and v2 files
@@ -24,6 +30,13 @@
  *                  Universal Hook pattern
  *   HSW            Honeycomb Storage Wall by RostaP: the peg that presses
  *                  into his printed insert, measured from his screwless box
+ *
+ * Anything that stands out of the back can't print with the back on the
+ * bed without supports, and a hook printed that way has its layers across
+ * its load. So each system that needs such a feature also offers it as a
+ * separate part that prints flat and slides into a channel or slot cut into
+ * the back (a dovetail narrowing toward the board face, which prints
+ * back-down without supports). The moulded version stays as an option.
  *   GOEWS          by MrExo3D (CC BY): the accessory hanger, as in
  *                  jimfunk's goews-rebuilt-openscad
  *   French cleat   45° hook for 19 mm (3/4") plywood cleats, as in
@@ -92,21 +105,22 @@ function notchedOutline({ W, H, R }, centres, w, stopV) {
   return pts;
 }
 
-function multiconnect(sink, back, pitch) {
+function multiconnect(sink, back, pitch, fit = 0) {
   const { W, H, R } = back;
-  const n = Math.floor((W - 2 * R - 2 * MC.headHalf) / pitch) + 1;
+  const neck = MC.neckHalf + fit, head = MC.headHalf + fit;
+  const n = Math.floor((W - 2 * R - 2 * head) / pitch) + 1;
   if (n < 1 || H < MC.stopBelowTop + 2) {
-    return { fits: false, text: `needs a back at least ${(2 * (R + MC.headHalf)).toFixed(0)} mm wide` };
+    return { fits: false, text: `needs a back at least ${(2 * (R + head)).toFixed(0)} mm wide` };
   }
   const centres = centred(n, pitch);
   const stopV = H / 2 - MC.stopBelowTop;
   const section = (d, w) => ({ t: d, contour: notchedOutline(back, centres, w, stopV) });
   // From the board face (d = depth) in to the slot floor on the back (d = 0)
   loft(sink, [
-    section(MC.depth, MC.neckHalf),
-    section(MC.depth - MC.lipDepth, MC.neckHalf),
-    section(MC.depth - MC.dovetailEnd, MC.headHalf),
-    section(0, MC.headHalf),
+    section(MC.depth, neck),
+    section(MC.depth - MC.lipDepth, neck),
+    section(MC.depth - MC.dovetailEnd, head),
+    section(0, head),
   ], wallPoint);
   for (const uc of centres) {
     loft(sink, [
@@ -134,14 +148,6 @@ const SKADIS = {
   margin: 2,         // from the back's top and bottom edges
 };
 
-export const SKADIS_METHODS = {
-  dovetail:     'Dovetail channel + printed pegs',
-  multiconnect: 'Multiconnect slots + SKÅDIS plugs',
-  tnut:         'Screw holes for T-nuts',
-  universal:    'Holes for Universal Hooks',
-  hooks:        'Moulded hooks (needs supports)',
-};
-export const DEFAULT_SKADIS_METHOD = 'dovetail';
 
 // Columns `pitch` apart that keep a part `width` wide clear of the corners.
 function columns({ W, R }, width, pitch = SKADIS.pitch) {
@@ -150,10 +156,11 @@ function columns({ W, R }, width, pitch = SKADIS.pitch) {
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function skadisHooks(sink, back) {
+function skadisHooks(sink, back, fit) {
   const { H } = back;
   const k = SKADIS;
-  const n = columns(back, 2 * k.halfWidth);
+  const half = k.halfWidth - fit, length = k.shaftLength + fit;  // thinner, and more room for the board
+  const n = columns(back, 2 * half);
   const rows = [];
   for (let vb = H / 2 - k.margin - k.shaftHeight; vb - k.headDrop >= -H / 2 + k.margin; vb -= k.pitch) {
     rows.push(vb);
@@ -161,12 +168,12 @@ function skadisHooks(sink, back) {
   if (n < 1 || rows.length < 1) return { fits: false, text: 'back too small for a hook' };
   for (const vb of rows) {
     for (const uc of centred(n, k.pitch)) {
-      const shaft = stadiumPoints(uc, vb, vb + k.shaftHeight, k.halfWidth);
-      const head = stadiumPoints(uc, vb - k.headDrop, vb + k.shaftHeight, k.halfWidth);
-      loft(sink, [{ t: 0, contour: shaft }, { t: k.shaftLength, contour: shaft }], wallPoint);
+      const shaft = stadiumPoints(uc, vb + fit, vb + k.shaftHeight - fit, half);
+      const head = stadiumPoints(uc, vb - k.headDrop + fit, vb + k.shaftHeight - fit, half);
+      loft(sink, [{ t: 0, contour: shaft }, { t: length, contour: shaft }], wallPoint);
       loft(sink, [
-        { t: k.shaftLength, contour: head },
-        { t: k.shaftLength + k.headLength, contour: head },
+        { t: length, contour: head },
+        { t: length + k.headLength, contour: head },
       ], wallPoint);
     }
   }
@@ -194,7 +201,9 @@ const DOVETAIL = {
   thickness: 5,     // across the slot; top and bottom rounded to the slot's r 2.5
 };
 
-function dovetailPeg(sink) {
+// The channel takes the bin's share of the fit; the peg's tenon keeps its
+// size, and the parts that go through the board shrink by `fit`.
+function dovetailPeg(sink, fit) {
   const k = DOVETAIL;
   // Print orientation: the hook's side profile flat on the bed (x = depth,
   // y = height, z = across the slot), so its layers run along the hook.
@@ -203,63 +212,105 @@ function dovetailPeg(sink) {
     t: u,
     contour: [[-k.tenonDepth, -k.tenonFloorHalf], [0, -k.tenonFaceHalf], [0, k.tenonFaceHalf], [-k.tenonDepth, k.tenonFloorHalf]],
   })), flat);
-  const r = k.thickness / 2, steps = 8;
+  const thickness = k.thickness - 2 * fit, board = k.boardDepth + fit;
+  const r = thickness / 2, steps = 8;
   const sections = [];
   for (let i = 0; i <= steps; i++) {
-    const u = (i / steps) * k.thickness;
-    const e = r - Math.sqrt(Math.max(0, r * r - (u - r) ** 2));  // round ends across the slot
+    const u = (i / steps) * thickness;
+    const e = r - Math.sqrt(Math.max(0, r * r - (u - r) ** 2)) + fit;  // round ends across the slot
     const top = k.shaftHalf - e, shaftBottom = -k.shaftHalf + e, headBottom = -k.shaftHalf - k.headDrop + e;
-    const back = k.boardDepth + k.headDepth;
+    const back = board + k.headDepth;
     sections.push({ t: u, contour: [
-      [0, shaftBottom], [k.boardDepth, shaftBottom], [k.boardDepth, headBottom],
+      [0, shaftBottom], [board, shaftBottom], [board, headBottom],
       [back, headBottom], [back, top], [0, top],
     ] });
   }
   loft(sink, sections, flat);
 }
 
-function skadisDovetail(sink, back) {
-  const { W, H, R } = back;
+// Horizontal dovetail channels in a plate DOVETAIL.depth thick, open at both
+// ends, so parts slide in from the side. The plate covers v0..v1 of the back
+// (rounded where it meets the back's top or bottom corners); `channels` are
+// channel centres from the top down. The plate is the bands between them,
+// each lofted from the back (d = 0) to the board face as the edges close in.
+function channelPlate(sink, { W, H, R }, v0, v1, channels, fit) {
   const k = DOVETAIL;
-  const half = (d) => k.floorHalf + (k.faceHalf - k.floorHalf) * (d / k.depth);
-  const rows = [];
-  for (let c = H / 2 - R - k.margin - k.floorHalf; c - k.floorHalf >= -H / 2 + R + k.margin; c -= SKADIS.pitch) rows.push(c);
-  const n = columns(back, 2 * k.tenonLength);
-  if (rows.length < 1 || n < 1) return { fits: false, text: 'back too small for a channel' };
-
-  // The plate is the bands between channels, each lofted from the back
-  // (d = 0) to the board face (d = depth) as the channel edges close in.
+  const floorHalf = k.floorHalf + fit, faceHalf = k.faceHalf + fit;
+  const half = (d) => floorHalf + (faceHalf - floorHalf) * (d / k.depth);
   const band = (lo, hi, d) => {
     const pts = [];
-    if (hi === null) {
-      pts.push([-W / 2, lo(d)], [W / 2, lo(d)]);
-      arc(pts, W / 2 - R, H / 2 - R, R, 0, 0.5 * Math.PI, 8);
-      arc(pts, -W / 2 + R, H / 2 - R, R, 0.5 * Math.PI, Math.PI, 8);
-    } else if (lo === null) {
+    if (lo === null && v0 <= -H / 2) {
       arc(pts, -W / 2 + R, -H / 2 + R, R, Math.PI, 1.5 * Math.PI, 8);
       arc(pts, W / 2 - R, -H / 2 + R, R, 1.5 * Math.PI, 2 * Math.PI, 8);
-      pts.push([W / 2, hi(d)], [-W / 2, hi(d)]);
     } else {
-      pts.push(...rectPoints(-W / 2, lo(d), W / 2, hi(d)));
+      const y = lo === null ? v0 : lo(d);
+      pts.push([-W / 2, y], [W / 2, y]);
+    }
+    if (hi === null && v1 >= H / 2) {
+      arc(pts, W / 2 - R, H / 2 - R, R, 0, 0.5 * Math.PI, 8);
+      arc(pts, -W / 2 + R, H / 2 - R, R, 0.5 * Math.PI, Math.PI, 8);
+    } else {
+      const y = hi === null ? v1 : hi(d);
+      pts.push([W / 2, y], [-W / 2, y]);
     }
     return pts;
   };
   // Band edges from the top down: each channel's upper edge, then its lower
-  const edges = [null, ...rows.flatMap(c => [(d) => c + half(d), (d) => c - half(d)]), null];
+  const edges = [null, ...channels.flatMap(c => [(d) => c + half(d), (d) => c - half(d)]), null];
   for (let i = 0; i < edges.length; i += 2) {
-    const hi = edges[i], lo = edges[i + 1];  // from the top down
+    const hi = edges[i], lo = edges[i + 1];
     loft(sink, [0, k.depth].map(d => ({ t: d, contour: band(lo, hi, d) })), wallPoint);
   }
+}
+
+// A dovetail tenon that fits those channels and slots, in a part's own frame:
+// (across, depth) section with depth -tenonDepth..0 below the part's face.
+function tenonSection(cx = 0) {
+  const k = DOVETAIL;
+  return [[cx - k.tenonFloorHalf, -k.tenonDepth], [cx + k.tenonFloorHalf, -k.tenonDepth],
+    [cx + k.tenonFaceHalf, 0], [cx - k.tenonFaceHalf, 0]];
+}
+
+function skadisDovetail(sink, back, fit) {
+  const { H, R } = back;
+  const k = DOVETAIL;
+  const floorHalf = k.floorHalf + fit;
+  const rows = [];
+  for (let c = H / 2 - R - k.margin - floorHalf; c - floorHalf >= -H / 2 + R + k.margin; c -= SKADIS.pitch) rows.push(c);
+  const n = columns(back, 2 * k.tenonLength);
+  if (rows.length < 1 || n < 1) return { fits: false, text: 'back too small for a channel' };
+  channelPlate(sink, back, -H / 2, H / 2, rows, fit);
   return {
     fits: true,
     text: `${plural(rows.length, 'channel')}; print up to ${n} pegs each`,
-    part: { name: 'skadis-peg', count: n * rows.length, build: dovetailPeg },
+    part: { name: 'skadis-peg', count: n * rows.length, build: (s) => dovetailPeg(s, fit) },
   };
 }
 
+// Vertical dovetail slots, open at the bottom of the back and closed flat at
+// `stopV`, one per column. Connectors sit in the board first; the bin lowers
+// onto them and hangs on the slots' stops, as with Multiconnect.
+function slotPlate(sink, back, centres, stopV, fit) {
+  const { W, H, R } = back;
+  const k = DOVETAIL;
+  const outline = (w) => {
+    const hw = W / 2, hh = H / 2, pts = [];
+    arc(pts, -hw + R, -hh + R, R, Math.PI, 1.5 * Math.PI, 8);
+    for (const uc of centres) pts.push([uc - w, -hh], [uc - w, stopV], [uc + w, stopV], [uc + w, -hh]);
+    arc(pts, hw - R, -hh + R, R, 1.5 * Math.PI, 2 * Math.PI, 8);
+    arc(pts, hw - R, hh - R, R, 0, 0.5 * Math.PI, 8);
+    arc(pts, -hw + R, hh - R, R, 0.5 * Math.PI, Math.PI, 8);
+    return pts;
+  };
+  loft(sink, [
+    { t: 0, contour: outline(k.floorHalf + fit) },
+    { t: k.depth, contour: outline(k.faceHalf + fit) },
+  ], wallPoint);
+}
+
 // Multiconnect slots on the SKÅDIS slot spacing, for David D's SKÅDIS plug.
-function skadisMulticonnect(sink, back) {
-  const res = multiconnect(sink, back, SKADIS.pitch);
+function skadisMulticonnect(sink, back, fit) {
+  const res = multiconnect(sink, back, SKADIS.pitch, fit);
   return res.fits ? { ...res, text: `${res.text}, for SKÅDIS plugs` } : res;
 }
 
@@ -274,14 +325,15 @@ const TNUT = {
   guideThickness: 1.0,
 };
 
-function tnutWasher(sink) {
+function tnutWasher(sink, fit) {
   const k = TNUT;
-  const outline = stadiumPoints(0, -k.guideHeight / 2, k.guideHeight / 2, k.guideHalfWidth);
-  const hole = circlePoints(0, 0, k.holeRadius, 16);
+  const h = k.guideHeight / 2 - fit;
+  const outline = stadiumPoints(0, -h, h, k.guideHalfWidth - fit);
+  const hole = circlePoints(0, 0, Math.min(k.holeRadius + fit, k.guideHalfWidth - fit - 0.4), 16);
   loft(sink, [0, k.guideThickness].map(t => ({ t, contour: outline, holes: [hole] })), (a, b, t) => [a, b, t]);
 }
 
-function skadisTnut(sink, back) {
+function skadisTnut(sink, back, fit) {
   const { H, R } = back;
   const k = TNUT, slotHalf = 7.5;
   const n = columns(back, 2 * slotHalf);
@@ -290,14 +342,14 @@ function skadisTnut(sink, back) {
   if (n < 1 || rows.length < 1) return { fits: false, text: 'back too small for a screw' };
   const holes = [];
   for (const v of rows) {
-    for (const u of centred(n, SKADIS.pitch)) holes.push(circlePoints(u, v, k.holeRadius, 16));
+    for (const u of centred(n, SKADIS.pitch)) holes.push(circlePoints(u, v, k.holeRadius + fit, 16));
   }
   const count = holes.length;
   return {
     fits: true,
     text: `${plural(count, 'M2.5 screw hole')} for T-nuts`,
     holes,
-    part: { name: 'skadis-washer', count, build: tnutWasher },
+    part: { name: 'skadis-washer', count, build: (s) => tnutWasher(s, fit) },
   };
 }
 
@@ -313,7 +365,7 @@ const UNIVERSAL = {
   fromTop: 6,         // uptick hole top, below the back's top edge
 };
 
-function skadisUniversal(sink, back, slabMM) {
+function skadisUniversal(sink, back, slabMM, fit) {
   const { H, R } = back;
   const k = UNIVERSAL;
   const n = columns(back, k.holeWidth);
@@ -323,9 +375,9 @@ function skadisUniversal(sink, back, slabMM) {
   }
   const holes = [];
   for (const u of centred(n, SKADIS.pitch)) {
-    const x0 = u - k.holeWidth / 2, x1 = u + k.holeWidth / 2;
-    holes.push(rectPoints(x0, top - k.upTickHeight, x1, top));
-    holes.push(rectPoints(x0, top - k.topToTop - k.pegHeight, x1, top - k.topToTop));
+    const x0 = u - k.holeWidth / 2 - fit, x1 = u + k.holeWidth / 2 + fit;
+    holes.push(rectPoints(x0, top - k.upTickHeight - fit, x1, top + fit));
+    holes.push(rectPoints(x0, top - k.topToTop - k.pegHeight - fit, x1, top - k.topToTop + fit));
   }
   const plate = k.backThickness - slabMM;
   loft(sink, [0, plate].map(d => ({ t: d, contour: backOutline(back), holes })), wallPoint);
@@ -333,12 +385,13 @@ function skadisUniversal(sink, back, slabMM) {
 }
 
 function skadis(sink, back, opts) {
-  switch (opts.skadisMethod) {
-    case 'hooks': return skadisHooks(sink, back);
-    case 'multiconnect': return skadisMulticonnect(sink, back);
-    case 'tnut': return skadisTnut(sink, back);
-    case 'universal': return skadisUniversal(sink, back, opts.slabMM);
-    default: return skadisDovetail(sink, back);
+  const fit = opts.fit ?? 0;
+  switch (opts.method) {
+    case 'hooks': return skadisHooks(sink, back, fit);
+    case 'multiconnect': return skadisMulticonnect(sink, back, fit);
+    case 'tnut': return skadisTnut(sink, back, fit);
+    case 'universal': return skadisUniversal(sink, back, opts.slabMM, fit);
+    default: return skadisDovetail(sink, back, fit);
   }
 }
 
@@ -355,20 +408,58 @@ const HSW = {
   cornerHalf: 7.765,    // half the peg across its corners
 };
 
-function hsw(sink, { W, H, R }) {
+function hswLayout({ W, H, R }, fit) {
   const k = HSW;
-  const apothem = k.profile[0][1];
+  const apothem = k.profile[0][1] - fit;
   const n = Math.floor((W - 2 * R - 2 * k.cornerHalf) / k.pitchAcross) + 1;
   const rows = [];
   for (let vc = H / 2 - R - apothem; vc >= -H / 2 + R + apothem; vc -= k.pitchUp) rows.push(vc);
+  return { apothem, n, rows };
+}
+
+function hswMoulded(sink, back, fit) {
+  const { n, rows } = hswLayout(back, fit);
   if (n < 1 || rows.length < 1) return { fits: false, text: 'back too small for a peg' };
   for (const vc of rows) {
-    for (const uc of centred(n, k.pitchAcross)) {
-      loft(sink, k.profile.map(([d, a]) => ({ t: d, contour: hexPoints(uc, vc, a) })), wallPoint);
+    for (const uc of centred(n, HSW.pitchAcross)) {
+      loft(sink, HSW.profile.map(([d, a]) => ({ t: d, contour: hexPoints(uc, vc, a - fit) })), wallPoint);
     }
   }
-  const count = n * rows.length;
-  return { fits: true, text: `${count} peg${count > 1 ? 's' : ''} for HSW inserts` };
+  return { fits: true, text: `${plural(n * rows.length, 'peg')}; print with supports` };
+}
+
+// Connector: the peg with a short tenon on its face that slides along a
+// channel. Printed standing on the peg's tip (z = tip to tenon), the peg
+// rises from the bed and the tenon sits inside its outline, widening at the
+// dovetail's ~21°. The tenon is 9 long, so its wide end stays within the hex.
+const HSW_TENON_HALF_LENGTH = 4.5;
+
+function hswConnector(sink, fit) {
+  const tip = HSW.profile[HSW.profile.length - 1][0];
+  loft(sink, HSW.profile.map(([d, a]) => ({ t: d, contour: hexPoints(0, 0, a - fit) })),
+    (a, b, t) => [a, b, tip - t]);
+  loft(sink, [-HSW_TENON_HALF_LENGTH, HSW_TENON_HALF_LENGTH].map(t => ({ t, contour: tenonSection() })),
+    (a, b, t) => [t, a, tip - b]);
+}
+
+// One channel per row of pegs, across the back and open at both ends. Slide
+// a connector in for each peg, space them a cell apart (40.9 mm), and press
+// the bin onto the inserts: every peg engages at once.
+function hswSlide(sink, back, fit) {
+  const { H } = back;
+  const { n, rows } = hswLayout(back, fit);
+  if (n < 1 || rows.length < 1) return { fits: false, text: 'back too small for a peg' };
+  channelPlate(sink, back, -H / 2, H / 2, rows, fit);
+  return {
+    fits: true,
+    text: `${plural(rows.length, 'channel')}; print ${n * rows.length} connectors`,
+    part: { name: 'hsw-connector', count: n * rows.length, build: (s) => hswConnector(s, fit) },
+  };
+}
+
+function hsw(sink, back, opts = {}) {
+  const fit = opts.fit ?? 0;
+  return opts.method === 'moulded' ? hswMoulded(sink, back, fit) : hswSlide(sink, back, fit);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,9 +480,9 @@ const GOEWS = {
   notchCentreAbove: 16,    // notch centre, above the hanger bottom
 };
 
-function goewsSection(uc, vb, d, halfWidth) {
+function goewsSection(uc, vb, d, halfWidth, offset) {
   const k = GOEWS;
-  const vMin = vb + Math.max(0, d - k.tolerance);   // 45° bevel on the wall side of the bottom
+  const vMin = vb + Math.max(0, d - offset);   // 45° bevel on the wall side of the bottom
   const top = vb + k.height;
   const cy = vb + k.notchCentreAbove;
   const xi = Math.sqrt(k.notchRadius ** 2 - (top - cy) ** 2);
@@ -402,27 +493,63 @@ function goewsSection(uc, vb, d, halfWidth) {
   return pts;
 }
 
-function goews(sink, { W, H }) {
+// One hanger with its face (d = 0) at depth `d0`, bottom at `vb`.
+function goewsHanger(sink, uc, vb, fit, toWorld, d0 = 0) {
+  const k = GOEWS;
+  const t = k.tolerance + fit, end = t + k.bodyDepth;
+  const body = k.halfBody - fit, point = k.halfPoint - fit;
+  loft(sink, [
+    { t: d0, contour: goewsSection(uc, vb, 0, body, t) },
+    { t: d0 + t, contour: goewsSection(uc, vb, t, body, t) },
+    { t: d0 + t + (point - body), contour: goewsSection(uc, vb, t + (point - body), point, t) },
+    { t: d0 + end, contour: goewsSection(uc, vb, end, body, t) },
+  ], toWorld);
+}
+
+function goewsLayout({ W, H }) {
   const k = GOEWS;
   const n = Math.floor((W + 0.5) / k.pitch);
   const top = H / 2 - k.topBelowBackTop;
-  if (n < 1 || top - k.height < -H / 2) return { fits: false, text: 'needs a back at least 41.5 mm wide' };
-  const t = k.tolerance, end = t + k.bodyDepth;
-  for (const uc of centred(n, k.pitch)) {
-    const vb = top - k.height;
-    loft(sink, [
-      { t: 0, contour: goewsSection(uc, vb, 0, k.halfBody) },
-      { t, contour: goewsSection(uc, vb, t, k.halfBody) },
-      { t: t + (k.halfPoint - k.halfBody), contour: goewsSection(uc, vb, t + (k.halfPoint - k.halfBody), k.halfPoint) },
-      { t: end, contour: goewsSection(uc, vb, end, k.halfBody) },
-    ], wallPoint);
-  }
-  return { fits: true, text: `${n} hanger${n > 1 ? 's' : ''}, ${k.pitch} mm apart` };
+  return { n, top, fits: n >= 1 && top - k.height >= -H / 2 };
+}
+
+function goewsMoulded(sink, back, fit) {
+  const { n, top, fits } = goewsLayout(back);
+  if (!fits) return { fits: false, text: 'needs a back at least 41.5 mm wide' };
+  for (const uc of centred(n, GOEWS.pitch)) goewsHanger(sink, uc, top - GOEWS.height, fit, wallPoint);
+  return { fits: true, text: `${plural(n, 'hanger')}; print with supports` };
+}
+
+// Separate hanger: the tab on a tenon as tall as the tab. Printed standing
+// (z = up the wall), the V edges lie in the layers and the bevel under the
+// tab rises at 45°.
+function goewsPart(sink, fit) {
+  const k = GOEWS;
+  loft(sink, [0, k.height].map(t => ({ t, contour: tenonSection() })), (a, b, t) => [a, b, t]);
+  goewsHanger(sink, 0, 0, fit, (a, b, t) => [a, t, b]);
+}
+
+function goewsSlide(sink, back, fit) {
+  const { n, top, fits } = goewsLayout(back);
+  if (!fits) return { fits: false, text: 'needs a back at least 41.5 mm wide' };
+  // The plate takes the back's place against the tile, so the tab sits as
+  // the moulded one does, measured from the plate's face
+  slotPlate(sink, back, centred(n, GOEWS.pitch), top, fit);
+  return {
+    fits: true,
+    text: `${plural(n, 'slot')}; print ${plural(n, 'hanger')}`,
+    part: { name: 'goews-hanger', count: n, build: (s) => goewsPart(s, fit) },
+  };
+}
+
+function goews(sink, back, opts = {}) {
+  const fit = opts.fit ?? 0;
+  return opts.method === 'moulded' ? goewsMoulded(sink, back, fit) : goewsSlide(sink, back, fit);
 }
 
 // ---------------------------------------------------------------------------
-// French cleat: a 45° hook block across the top of the back that drops over
-// a 19 mm wall cleat, and a spacer at the bottom so a tall bin hangs plumb.
+// French cleat: a 45° hook across the top of the back that drops over a
+// 19 mm wall cleat, and a spacer at the bottom so a tall bin hangs plumb.
 // ---------------------------------------------------------------------------
 
 const CLEAT = {
@@ -435,53 +562,156 @@ const CLEAT = {
   spacerChamfer: 5,
 };
 
-function frenchCleat(sink, { W, H, R }) {
+// Where the hook and spacer go on a back { H }: the wall cleat's front-top
+// edge, and the spacer's band (null when the back ends above the wall cleat).
+function cleatLayout({ H }) {
   const k = CLEAT;
-  if (H < k.above + k.drop) return { fits: false, text: `needs a back at least ${k.above + k.drop} mm tall` };
   const edge = H / 2 - k.above;
-  const across = (a, b, t) => wallPoint(t, b, a);  // section in (d, v), swept along u
-  const u0 = -W / 2 + R, u1 = W / 2 - R;
-  const hook = [
-    [0, edge], [k.thickness - k.tip, edge - k.drop], [k.thickness, edge - k.drop],
-    [k.thickness, edge + k.above], [0, edge + k.above],
-  ];
-  loft(sink, [{ t: u0, contour: hook }, { t: u1, contour: hook }], across);
-
-  // Spacer below the wall cleat, only when the back reaches past it
   const vb = -H / 2;
   const vt = Math.min(vb + k.spacerHeight, edge - k.wallCleatHeight - 1);
-  let text = 'hook for a 19 mm cleat';
-  if (vt - vb >= k.spacerChamfer + 1) {
-    const spacer = [
-      [0, vb], [k.thickness - k.spacerChamfer, vb], [k.thickness, vb + k.spacerChamfer],
-      [k.thickness, vt], [0, vt],
-    ];
-    loft(sink, [{ t: u0, contour: spacer }, { t: u1, contour: spacer }], across);
-    text += ' and a spacer';
+  return { edge, spacer: vt - vb >= k.spacerChamfer + 1 ? [vb, vt] : null };
+}
+
+// Section of the hook in (d, v), with its face against the bin at depth d0
+// (the back, or a plate's face) and the wall 19 mm beyond it
+function hookSection(edge, d0) {
+  const k = CLEAT;
+  return [
+    [d0, edge], [d0 + k.thickness - k.tip, edge - k.drop], [d0 + k.thickness, edge - k.drop],
+    [d0 + k.thickness, edge + k.above], [d0, edge + k.above],
+  ];
+}
+
+function spacerSection([vb, vt], d0) {
+  const k = CLEAT;
+  return [
+    [d0, vb], [d0 + k.thickness - k.spacerChamfer, vb], [d0 + k.thickness, vb + k.spacerChamfer],
+    [d0 + k.thickness, vt], [d0, vt],
+  ];
+}
+
+function cleatMoulded(sink, back) {
+  const { W, R } = back;
+  const { edge, spacer } = cleatLayout(back);
+  const across = (a, b, t) => wallPoint(t, b, a);  // section in (d, v), swept along u
+  const u0 = -W / 2 + R, u1 = W / 2 - R;
+  loft(sink, [u0, u1].map(t => ({ t, contour: hookSection(edge, 0) })), across);
+  if (spacer) loft(sink, [u0, u1].map(t => ({ t, contour: spacerSection(spacer, 0) })), across);
+  return { fits: true, text: `hook${spacer ? ' and spacer' : ''}; print with supports` };
+}
+
+// Insert a tenon into a (d, v) section's face at depth d0, centred at v = c:
+// the section's points run along d0 from the last point back to the first.
+function withTenon(section, d0, c) {
+  const k = DOVETAIL;
+  return [...section,
+    [d0, c + k.tenonFaceHalf], [d0 - k.tenonDepth, c + k.tenonFloorHalf],
+    [d0 - k.tenonDepth, c - k.tenonFloorHalf], [d0, c - k.tenonFaceHalf]];
+}
+
+// Cleat bar (and spacer bar): the hook profile with a tenon on its face,
+// sliding into a channel in a plate across the whole back. The plate's face
+// takes the back's place against the wall cleat, so the bin still prints
+// flat on it. Printed lying on its wall face, the 45° face rises from the
+// bed and the tenon tops it.
+function cleatParts(sink, back) {
+  const { W, R } = back;
+  const { edge, spacer } = cleatLayout(back);
+  const p = DOVETAIL.depth;
+  const len = W - 2 * R;
+  const lying = (dy) => (a, b, t) => [t, b + dy, p + CLEAT.thickness - a];
+  // The section's last point and first point both sit on the plate face d = p,
+  // so the tenon goes between them, at the channel centre
+  loft(sink, [0, len].map(t => ({ t, contour: withTenon(hookSection(edge, p), p, edge + CLEAT.above / 2) })), lying(0));
+  if (spacer) {
+    const c = (spacer[0] + spacer[1]) / 2;
+    // Laid out 10 mm below the bar's tongue in the same file
+    const dy = edge - CLEAT.drop - 10 - spacer[1];
+    loft(sink, [0, len].map(t => ({ t, contour: withTenon(spacerSection(spacer, p), p, c) })), lying(dy));
   }
-  return { fits: true, text };
+}
+
+function cleatBar(sink, back, fit) {
+  const { H } = back;
+  const { edge, spacer } = cleatLayout(back);
+  const channels = [edge + CLEAT.above / 2];
+  if (spacer) channels.push((spacer[0] + spacer[1]) / 2);
+  channelPlate(sink, back, -H / 2, H / 2, channels, fit);
+  return {
+    fits: true,
+    text: `${spacer ? 'two channels' : 'a channel'}; print the cleat bar${spacer ? ' and spacer' : ''}`,
+    part: { name: 'cleat-bar', count: 1, build: (s) => cleatParts(s, back) },
+  };
+}
+
+function frenchCleat(sink, back, opts = {}) {
+  if (back.H < CLEAT.above + CLEAT.drop) {
+    return { fits: false, text: `needs a back at least ${CLEAT.above + CLEAT.drop} mm tall` };
+  }
+  return opts.method === 'moulded' ? cleatMoulded(sink, back) : cleatBar(sink, back, opts.fit ?? 0);
 }
 
 // ---------------------------------------------------------------------------
 // Registry. 'gridfinity' keeps the base feet (with magnet holes), so it has
-// no builder here.
+// no builder here. `methods` lists a system's attachments, default first:
+// { key: { label, hint } }, the hint being what the user prints or buys.
 // ---------------------------------------------------------------------------
 
 export const WALL_SYSTEMS = {
   gridfinity: { label: 'Gridfinity wall plate' },
-  opengrid:   { label: 'openGrid (Multiconnect)', build: (s, b) => multiconnect(s, b, 28) },
-  multiboard: { label: 'Multiboard (Multiconnect)', build: (s, b) => multiconnect(s, b, 25) },
-  skadis:     { label: 'IKEA SKÅDIS', build: skadis },
-  hsw:        { label: 'Honeycomb Storage Wall', build: hsw },
-  goews:      { label: 'GOEWS', build: goews },
-  cleat:      { label: 'French cleat', build: frenchCleat },
+  opengrid:   { label: 'openGrid (Multiconnect)', build: (s, b, o) => multiconnect(s, b, 28, o.fit) },
+  multiboard: { label: 'Multiboard (Multiconnect)', build: (s, b, o) => multiconnect(s, b, 25, o.fit) },
+  skadis: {
+    label: 'IKEA SKÅDIS',
+    build: skadis,
+    methods: {
+      dovetail:     { label: 'Dovetail pegs', hint: 'no supports; print the pegs' },
+      multiconnect: { label: 'Multiconnect', hint: 'no supports; print SKÅDIS plugs' },
+      tnut:         { label: 'T-nut screws', hint: 'no supports; M2.5 screws, T-nuts' },
+      universal:    { label: 'Universal Hook', hint: 'no supports; print Universal Hooks' },
+      hooks:        { label: 'Moulded hooks', hint: 'hooks need supports' },
+    },
+  },
+  hsw: {
+    label: 'Honeycomb Storage Wall',
+    build: hsw,
+    methods: {
+      slide:   { label: 'Slide-on pegs', hint: 'no supports; print the connectors' },
+      moulded: { label: 'Moulded pegs', hint: 'pegs need supports' },
+    },
+  },
+  goews: {
+    label: 'GOEWS',
+    build: goews,
+    methods: {
+      slide:   { label: 'Slide-on hangers', hint: 'no supports; print the hangers' },
+      moulded: { label: 'Moulded hangers', hint: 'hangers need supports' },
+    },
+  },
+  cleat: {
+    label: 'French cleat',
+    build: frenchCleat,
+    methods: {
+      bar:     { label: 'Slide-in cleat bar', hint: 'no supports; print the bar' },
+      moulded: { label: 'Moulded hook', hint: 'hook needs supports' },
+    },
+  },
 };
 
 export const DEFAULT_WALL_SYSTEM = 'opengrid';
 
+// A system's attachment choice, checked against its list (null when it has none)
+export function resolveMethod(system, method) {
+  const methods = WALL_SYSTEMS[system]?.methods;
+  if (!methods) return null;
+  return Object.hasOwn(methods, method) ? method : Object.keys(methods)[0];
+}
+
 /**
  * Plan the mount for `system` behind a back face { W, H, R }.
- *   opts  { skadisMethod, slabMM }: slabMM is the floor slab's thickness
+ *   opts  { method, slabMM, fit }: method from the system's `methods`;
+ *         slabMM the floor slab's thickness; fit the extra clearance per
+ *         side (see the top)
  * Returns { fits, text, holes, build, part }:
  *   holes  outlines in (u, v) to cut through the back into the bin
  *   build  (sink) => void, writes the mount's shells in world coordinates
@@ -491,7 +721,8 @@ export function planWallMount(system, back, opts = {}) {
   const entry = WALL_SYSTEMS[system];
   if (!entry?.build) return { fits: true, text: '', holes: [], build: () => {}, part: null };
   const tris = [];
-  const res = entry.build({ tri: (a, b, c) => tris.push([a, b, c]) }, back, opts);
+  const method = resolveMethod(system, opts.method);
+  const res = entry.build({ tri: (a, b, c) => tris.push([a, b, c]) }, back, { ...opts, method });
   return {
     fits: res.fits,
     text: res.text,

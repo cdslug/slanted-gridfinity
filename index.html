@@ -102,18 +102,13 @@
               <option value="cleat">French cleat</option>
             </select>
           </div>
-          <div class="param-row" id="skadis-method-row">
+          <div class="param-row" id="mount-method-row">
             <div class="param-text">
-              <label for="skadis-method" data-help="mount.skadisMethod" data-help-click>Attachment</label>
-              <div class="value-display" id="skadis-method-val"></div>
+              <label for="mount-method" data-help="mount.method" data-help-click>Attachment</label>
+              <div class="value-display" id="mount-method-val"></div>
             </div>
-            <select id="skadis-method">
-              <option value="dovetail" selected>Dovetail pegs</option>
-              <option value="multiconnect">Multiconnect</option>
-              <option value="tnut">T-nut screws</option>
-              <option value="universal">Universal Hook</option>
-              <option value="hooks">Moulded hooks</option>
-            </select>
+            <!-- Options come from the wall system's methods (wall-mounts.js) -->
+            <select id="mount-method"></select>
           </div>
         </div>
 
@@ -159,6 +154,30 @@
             <label for="wall-thickness" data-help="walls.thickness" data-help-click>Wall thickness (mm)</label>
             <input type="range" id="wall-thickness" min="0.40" max="2.00" step="0.01" value="0.82">
             <div class="value-display" id="wall-thickness-val"></div>
+          </div>
+        </div>
+
+        <!-- Print fit -->
+        <div class="control-section">
+          <h3>Print Fit</h3>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="nozzle" data-help="fit.nozzle" data-help-click>Nozzle</label>
+              <div class="value-display">suggests a clearance</div>
+            </div>
+            <select id="nozzle">
+              <option value="0.2">0.2 mm</option>
+              <option value="0.4" selected>0.4 mm</option>
+              <option value="0.6">0.6 mm</option>
+              <option value="0.8">0.8 mm</option>
+            </select>
+          </div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="fit-clearance" data-help="fit.clearance" data-help-click>Fit clearance</label>
+              <div class="value-display" id="fit-clearance-val"></div>
+            </div>
+            <input type="number" id="fit-clearance" min="-0.2" max="0.6" step="0.05" value="0">
           </div>
         </div>
 
