@@ -41,39 +41,6 @@
 
       <div class="sidebar-body">
 
-        <!-- Grid Size -->
-        <div class="control-section">
-          <h3>Grid Size</h3>
-          <div class="param-row">
-            <div class="param-text">
-              <label for="grid-unit-mm" data-help="grid.unit" data-help-click>Unit size</label>
-              <div class="value-display">mm per grid unit</div>
-            </div>
-            <input type="number" id="grid-unit-mm" min="20" max="100" step="0.5" value="42">
-          </div>
-          <div class="param-row">
-            <div class="param-text">
-              <label for="grid-divisions" data-help="grid.divisions" data-help-click>Divisions</label>
-              <div class="value-display" id="grid-unit-val"></div>
-            </div>
-            <select id="grid-divisions">
-              <option value="1" selected>Whole</option>
-              <option value="2">Half</option>
-            </select>
-          </div>
-          <div class="param-row">
-            <div class="param-text">
-              <label for="grid-x" data-help="grid.size" data-help-click>Bin size</label>
-              <div class="value-display" id="grid-size-val">X × Y units</div>
-            </div>
-            <div class="param-pair">
-              <input type="number" id="grid-x" min="1" max="20" step="1" value="2" aria-label="X units">
-              <span class="param-sep">×</span>
-              <input type="number" id="grid-y" min="1" max="20" step="1" value="2" aria-label="Y units">
-            </div>
-          </div>
-        </div>
-
         <!-- Mounting -->
         <div class="control-section">
           <h3>Mounting</h3>
@@ -112,6 +79,53 @@
           </div>
         </div>
 
+        <!-- Grid Size -->
+        <div class="control-section">
+          <h3>Grid Size</h3>
+          <div class="param-row" id="grid-unit-row">
+            <div class="param-text">
+              <label for="grid-unit-mm" data-help="grid.unit" data-help-click>Unit size</label>
+              <div class="value-display" id="grid-unit-note">mm per grid unit</div>
+            </div>
+            <input type="number" id="grid-unit-mm" min="20" max="100" step="0.5" value="42">
+            <!-- Shown instead of the input when the wall system sets the spacing -->
+            <div class="param-fixed" id="grid-unit-fixed"></div>
+          </div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="grid-divisions" data-help="grid.divisions" data-help-click>Divisions</label>
+              <div class="value-display" id="grid-unit-val"></div>
+            </div>
+            <select id="grid-divisions">
+              <option value="1" selected>Whole</option>
+              <option value="2">Half</option>
+            </select>
+          </div>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="size-unit" data-help="grid.sizeUnit" data-help-click>Size in</label>
+              <div class="value-display" id="size-unit-val"></div>
+            </div>
+            <select id="size-unit">
+              <option value="units" selected>Grid units</option>
+              <option value="mm">mm</option>
+              <option value="cm">cm</option>
+              <option value="in">in</option>
+            </select>
+          </div>
+          <div class="param-row param-row-wide">
+            <div class="param-text">
+              <label for="grid-x" data-help="grid.size" data-help-click>Bin size</label>
+              <div class="value-display" id="grid-size-val">X × Y units</div>
+            </div>
+            <div class="param-pair">
+              <input type="number" id="grid-x" min="1" max="20" step="1" value="2" aria-label="X size">
+              <span class="param-sep">×</span>
+              <input type="number" id="grid-y" min="1" max="20" step="1" value="2" aria-label="Y size">
+            </div>
+          </div>
+        </div>
+
         <!-- Height -->
         <div class="control-section">
           <h3>Height</h3>
@@ -127,13 +141,30 @@
 
         <!-- Slant / Offset -->
         <div class="control-section">
-          <h3>Slant Offset</h3>
+          <h3>Slant</h3>
           <div class="param-row">
+            <div class="param-text">
+              <label id="offset-mode-label" data-help="offset.mode" data-help-click>Set by</label>
+              <div class="value-display" id="offset-mode-val"></div>
+            </div>
+            <div class="radio-group param-radios" role="radiogroup" aria-labelledby="offset-mode-label">
+              <label><input type="radio" name="offset-mode" value="grid" checked> Grid</label>
+              <label><input type="radio" name="offset-mode" value="angle"> Angle</label>
+            </div>
+          </div>
+          <div class="param-row" id="offset-units-row">
             <div class="param-text">
               <label for="offset-units" data-help="offset.units" data-help-click>Offset</label>
               <div class="value-display" id="offset-units-val"></div>
             </div>
             <input type="number" id="offset-units" min="0" max="20" step="0.5" value="2">
+          </div>
+          <div class="param-row" id="offset-angle-row">
+            <div class="param-text">
+              <label for="offset-angle" data-help="offset.angle" data-help-click>Angle</label>
+              <div class="value-display" id="offset-angle-val"></div>
+            </div>
+            <input type="number" id="offset-angle" min="0" max="90" step="0.5" value="30">
           </div>
           <div class="param-row" id="offset-axis-row">
             <div class="param-text">

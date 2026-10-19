@@ -86,20 +86,24 @@ const MC = {
   dotRadius: 1.0,       // detent dot on the slot floor at the stop
   dotHeight: 1.0,
   endSegments: 16,
+  minEdge: 1.2,         // plate left beside the outermost slot's head
 };
 
 // The plate's section at slot half-width w: the back's outline with a notch
-// up from the bottom edge to a round end at each slot. CCW.
+// up from the bottom edge to a round end at each slot. CCW. On a back one
+// pitch wide the slot comes within R of the edge, so the bottom corners
+// round off tighter there, to stay clear of the notch.
 function notchedOutline({ W, H, R }, centres, w, stopV) {
   const hw = W / 2, hh = H / 2, cs = 8;
+  const rb = Math.min(R, hw - Math.max(...centres.map(Math.abs)) - w - 0.2);
   const pts = [];
-  arc(pts, -hw + R, -hh + R, R, Math.PI, 1.5 * Math.PI, cs);
+  arc(pts, -hw + rb, -hh + rb, rb, Math.PI, 1.5 * Math.PI, cs);
   for (const uc of centres) {
     pts.push([uc - w, -hh]);
     arc(pts, uc, stopV, w, Math.PI, 0, MC.endSegments);
     pts.push([uc + w, -hh]);
   }
-  arc(pts, hw - R, -hh + R, R, 1.5 * Math.PI, 2 * Math.PI, cs);
+  arc(pts, hw - rb, -hh + rb, rb, 1.5 * Math.PI, 2 * Math.PI, cs);
   arc(pts, hw - R, hh - R, R, 0, 0.5 * Math.PI, cs);
   arc(pts, -hw + R, hh - R, R, 0.5 * Math.PI, Math.PI, cs);
   return pts;
@@ -108,9 +112,9 @@ function notchedOutline({ W, H, R }, centres, w, stopV) {
 function multiconnect(sink, back, pitch, fit = 0) {
   const { W, H, R } = back;
   const neck = MC.neckHalf + fit, head = MC.headHalf + fit;
-  const n = Math.floor((W - 2 * R - 2 * head) / pitch) + 1;
+  const n = Math.floor((W - 2 * MC.minEdge - 2 * head) / pitch) + 1;
   if (n < 1 || H < MC.stopBelowTop + 2) {
-    return { fits: false, text: `needs a back at least ${(2 * (R + head)).toFixed(0)} mm wide` };
+    return { fits: false, text: `needs a back at least ${(2 * (MC.minEdge + head)).toFixed(0)} mm wide` };
   }
   const centres = centred(n, pitch);
   const stopV = H / 2 - MC.stopBelowTop;
@@ -282,7 +286,7 @@ function skadisDovetail(sink, back, fit) {
   channelPlate(sink, back, -H / 2, H / 2, rows, fit);
   return {
     fits: true,
-    text: `${plural(rows.length, 'channel')}; print up to ${n} pegs each`,
+    text: `${plural(rows.length, 'channel')}; print up to ${plural(n, 'peg')} each`,
     part: { name: 'skadis-peg', count: n * rows.length, build: (s) => dovetailPeg(s, fit) },
   };
 }
@@ -452,7 +456,7 @@ function hswSlide(sink, back, fit) {
   channelPlate(sink, back, -H / 2, H / 2, rows, fit);
   return {
     fits: true,
-    text: `${plural(rows.length, 'channel')}; print ${n * rows.length} connectors`,
+    text: `${plural(rows.length, 'channel')}; print ${plural(n * rows.length, 'connector')}`,
     part: { name: 'hsw-connector', count: n * rows.length, build: (s) => hswConnector(s, fit) },
   };
 }
@@ -468,7 +472,8 @@ function hsw(sink, back, opts = {}) {
 // ---------------------------------------------------------------------------
 
 const GOEWS = {
-  pitch: 42,
+  pitch: 42,                        // across: one hanger unit per tile
+  rowPitch: 42 * Math.sqrt(3) / 2,  // up: 36.373, hex rows and grid tiles alike
   topBelowBackTop: 11.24,  // hanger top, below the back's top edge
   height: 13.15,
   tolerance: 0.15,         // the hanger starts this far behind the back
@@ -655,14 +660,26 @@ function frenchCleat(sink, back, opts = {}) {
 // Registry. 'gridfinity' keeps the base feet (with magnet holes), so it has
 // no builder here. `methods` lists a system's attachments, default first:
 // { key: { label, hint } }, the hint being what the user prints or buys.
+// `spacing` is the board's pitch { across, up } in mm, which a bin's grid
+// units follow on that wall, so neighbouring bins land on the board's holes.
+// Without one (Gridfinity, French cleat) the bin uses the Unit size setting.
 // ---------------------------------------------------------------------------
 
 export const WALL_SYSTEMS = {
   gridfinity: { label: 'Gridfinity wall plate' },
-  opengrid:   { label: 'openGrid (Multiconnect)', build: (s, b, o) => multiconnect(s, b, 28, o.fit) },
-  multiboard: { label: 'Multiboard (Multiconnect)', build: (s, b, o) => multiconnect(s, b, 25, o.fit) },
+  opengrid: {
+    label: 'openGrid (Multiconnect)',
+    spacing: { across: 28, up: 28 },
+    build: (s, b, o) => multiconnect(s, b, 28, o.fit),
+  },
+  multiboard: {
+    label: 'Multiboard (Multiconnect)',
+    spacing: { across: 25, up: 25 },
+    build: (s, b, o) => multiconnect(s, b, 25, o.fit),
+  },
   skadis: {
     label: 'IKEA SKÅDIS',
+    spacing: { across: SKADIS.pitch, up: SKADIS.pitch },
     build: skadis,
     methods: {
       dovetail:     { label: 'Dovetail pegs', hint: 'no supports; print the pegs' },
@@ -674,6 +691,9 @@ export const WALL_SYSTEMS = {
   },
   hsw: {
     label: 'Honeycomb Storage Wall',
+    // A cell up the same column; across, every other column (the one between
+    // sits half a cell higher)
+    spacing: { across: HSW.pitchAcross, up: HSW.pitchUp / 2 },
     build: hsw,
     methods: {
       slide:   { label: 'Slide-on pegs', hint: 'no supports; print the connectors' },
@@ -682,6 +702,9 @@ export const WALL_SYSTEMS = {
   },
   goews: {
     label: 'GOEWS',
+    // Hex tiles stagger alternate rows by half a tile, so a bin one row
+    // higher also sits 21 mm over; grid tiles stack straight
+    spacing: { across: GOEWS.pitch, up: GOEWS.rowPitch },
     build: goews,
     methods: {
       slide:   { label: 'Slide-on hangers', hint: 'no supports; print the hangers' },
@@ -730,4 +753,10 @@ export function planWallMount(system, back, opts = {}) {
     part: res.part ?? null,
     build: (sink) => { for (const [a, b, c] of tris) sink.tri(a, b, c); },
   };
+}
+
+// The pitch a bin's grid units follow on `system`'s board: its own spacing,
+// or `unitMM` (the Unit size setting) for a system without one.
+export function wallSpacing(system, unitMM) {
+  return WALL_SYSTEMS[system]?.spacing ?? { across: unitMM, up: unitMM };
 }

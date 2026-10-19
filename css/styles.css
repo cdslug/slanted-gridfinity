@@ -358,6 +358,11 @@ input[type="range"]::-moz-range-track {
   border-top: 1px solid var(--border);
 }
 
+/* Two inputs that may hold lengths like 125.5 */
+.param-row.param-row-wide {
+  grid-template-columns: 1fr 128px;
+}
+
 .param-row:first-of-type {
   border-top: none;
   padding-top: 0;
@@ -782,6 +787,7 @@ input[type="range"]::-moz-range-track {
   .checkbox-group label { font-size: 14px; }
   .control-group .value-display { font-size: 12.5px; }
   .param-row { grid-template-columns: 1fr 132px; padding: 8px 0; }
+  .param-row.param-row-wide { grid-template-columns: 1fr 156px; }
   .param-text label { font-size: 14px; }
   .param-text .value-display { font-size: 12px; }
 
@@ -853,4 +859,12 @@ input[type="range"]::-moz-range-track {
 
 .sidebar::-webkit-scrollbar-thumb:hover {
   background: var(--border-input);
+}
+
+/* A read-only value in a parameter row's control column */
+.param-fixed {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  text-align: right;
 }

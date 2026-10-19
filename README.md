@@ -81,11 +81,13 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 
 ## Features
 
-- Grid size from 1 to 20 units on each axis, height from 1 to 100 units
+- Bin size in grid units (1 to 20 on each axis) or as an outside size in
+  mm, cm or inches; height from 1 to 100 units
 - Custom grid unit size (42mm by default) for non-standard baseplates
 - Optional half-unit sizes (e.g. 0.5 x 1); the base gets half-size feet
   that still seat in a standard baseplate
-- Slant offset along X or Y, in half grid units
+- Slant along X or Y, set by an offset in half grid units (the opening lands
+  on the grid) or by an angle from 0 to 90 degrees
 - Adjustable wall thickness and corner resolution
 - Optional Gridfinity base profile
 - Optional end bin: a support wedge that fills the space at the end of a row
@@ -125,12 +127,17 @@ of plain Gridfinity feet.
 
 1. Under **Mounting**, set **Orientation** to **Vertical**. The offset axis,
    base and end bin controls hide, since they only apply to drawer bins.
-2. Set **Bin size**. On a wall the first number is the width across the wall
-   and the second the height up it. **Height units** sets how far the bin
-   reaches out from the wall, and **Offset** how far the opening rises.
-3. Pick the **Wall system**. Some systems also have an **Attachment** choice
+2. Pick the **Wall system**. Some systems also have an **Attachment** choice
    (below); the line under each picker says what fits on this bin and what
    you need to print or buy.
+3. Set **Bin size**. On a wall the first number is the width across the wall
+   and the second the height up it. In grid units, a unit is the board's own
+   spacing (see the table below), so bins side by side land on the board's
+   holes; **Unit size** shows it in place of its input. With **Size in** set
+   to mm, cm or in you give the bin's outside size instead. **Height units**
+   sets how far the bin reaches out from the wall. Under **Slant**, **Offset**
+   sets how far the opening rises in units of the board's spacing up it, or
+   switch **Set by** to **Angle** to give the lean in degrees from level.
 4. Under **Print Fit**, pick your **Nozzle**, and adjust **Fit clearance**
    after a test print if parts are too tight or too loose.
 5. **Export STL** saves the bin and, when the attachment uses one, the
@@ -153,18 +160,21 @@ the back need supports, and their layers run across the load.
 ### Wall systems
 
 Only the bin side is generated; use each board's own connectors or inserts.
-Mounts are spaced at the board's pitch and centred on the back. A back too
-small for any mount gets none, and the sidebar says why.
+A grid unit on the wall is the board's pitch, and a bin is that many units
+less 0.5 mm, so neighbours have room between them. Mounts are spaced at the
+board's pitch and centred on the back. A back too small for any mount gets
+none, and the sidebar says why. The Gridfinity plate and French cleat have no
+pitch of their own here, so their units follow the **Unit size** setting.
 
-| System | What the back gets | Board pitch |
+| System | What the back gets | Board pitch (one grid unit) |
 | --- | --- | --- |
 | Gridfinity plate | Standard feet with 6.5 x 2.4 mm magnet holes, for a magnetic baseplate mounted on the wall | 42 mm |
 | openGrid | [Multiconnect](https://www.printables.com/model/987877) dovetail slots, open at the bottom | 28 mm |
 | Multiboard | Multiconnect dovetail slots | 25 mm |
 | IKEA SKÅDIS | One of five attachments | 40 mm |
 | Honeycomb Storage Wall | Channels for printed peg connectors, or moulded pegs | 40.9 mm across, 23.6 mm up |
-| GOEWS | Slots for printed hangers, or moulded hangers | 42 mm |
-| French cleat | A channel for a printed cleat bar, or a moulded hook, for 19 mm (3/4") plywood cleats | any |
+| GOEWS | Slots for printed hangers, or moulded hangers | 42 mm across, 36.4 mm up (hex tiles stagger alternate rows by 21 mm) |
+| French cleat | A channel for a printed cleat bar, or a moulded hook, for 19 mm (3/4") plywood cleats | any (Unit size, 42 mm by default) |
 
 ### Attachments
 
@@ -253,8 +263,10 @@ repo as a git submodule and copies it to `/tools/slanted-gridfinity/app/` at bui
 The app makes no network requests. When you export, it fires a `tool-action`
 event on `document` with `detail: { action: 'export', detail: 'both:2x2:h12:o2x' }`
 (which files, grid size, height units, slant offset and axis), so a site that
-hosts it can count exports with its own script. Nothing listens unless the
-host page adds a listener.
+hosts it can count exports with its own script. A size given as a length
+reads like `100mmx80mm`, and a slant set by angle like `a30degx`. On a wall
+the axis is `up`, and `-part` follows the files when a mount part is
+exported. Nothing listens unless the host page adds a listener.
 
 ## Contributing
 
