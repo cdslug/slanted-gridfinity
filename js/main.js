@@ -15,10 +15,10 @@ import {
   generateSlantedBin,
   generateEndBin,
   generateWallPart,
-  GRID_MM, HEIGHT_UNIT_MM, BASE_HEIGHT_MM,
-  binOuterMM, interiorHeightMM, interiorWidthMM,
+  GRID_MM, HEIGHT_UNIT_MM, TOLERANCE_MM,
+  interiorHeightMM, footCount,
 } from './gridfinity-geometry.js';
-import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod } from './wall-mounts.js';
+import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod, wallSpacing } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
@@ -260,7 +260,7 @@ function updateBinMesh() {
   const params = readParams();
 
   // Main bin — doesn't depend on the end bin's size
-  const { endGridX, endGridY, ...binParams } = params;
+  const { endGridX, endGridY, ui, ...binParams } = params;
   const key = JSON.stringify(binParams);
   if (key !== binKey) {
     binKey = key;
@@ -272,7 +272,7 @@ function updateBinMesh() {
 
   // End bin — only exists when a floor bin is slanted; it doesn't depend on
   // wall thickness or the wall mount
-  const { wallThickness, orientation, wallSystem, mountMethod, ...endParams } = params;
+  const { wallThickness, orientation, wallSystem, mountMethod, ui: _ui, ...endParams } = params;
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -289,8 +289,8 @@ function updateBinMesh() {
   // Wall mount part — depends only on the back's size and the mount choice
   const pk = orientation === 'vertical'
     ? JSON.stringify({
-      gridX: params.gridX, gridY: params.gridY, gridMM: params.gridMM, wallSystem, mountMethod,
-      fitClearance: params.fitClearance,
+      gridX: params.gridX, gridY: params.gridY, gridMM: params.gridMM, pitchX: params.pitchX, pitchY: params.pitchY,
+      wallSystem, mountMethod, fitClearance: params.fitClearance,
     })
     : null;
   if (pk !== partKey) {
@@ -423,8 +423,18 @@ function syncMethodOptions() {
   if (Object.hasOwn(methods, previous)) select.value = previous;
 }
 
-// Size inputs that count grid units; fractional when divisions > 1.
+// Size inputs that count grid units; fractional when divisions > 1. The main
+// bin's two (BIN_SIZE_IDS) take lengths instead when Size in is mm, cm or in.
 const UNIT_INPUT_IDS = ['grid-x', 'grid-y', 'end-grid-x', 'end-grid-y'];
+const BIN_SIZE_IDS = ['grid-x', 'grid-y'];
+const MAX_UNITS = 20;
+
+// Lengths a bin size can be typed in: mm per unit, input bounds and step
+const LENGTH_UNITS = {
+  mm: { mm: 1,    min: 10,  max: 840, step: 0.5,  digits: 1 },
+  cm: { mm: 10,   min: 1,   max: 84,  step: 0.05, digits: 2 },
+  in: { mm: 25.4, min: 0.4, max: 33,  step: 0.05, digits: 2 },
+};
 
 function readGridMM() {
   const v = parseFloat(document.getElementById('grid-unit-mm').value);
@@ -433,6 +443,16 @@ function readGridMM() {
 
 function readDivisions() {
   return parseInt(document.getElementById('grid-divisions').value) || 1;
+}
+
+// 'units' or a key of LENGTH_UNITS
+function readSizeUnit() {
+  const v = document.getElementById('size-unit').value;
+  return Object.hasOwn(LENGTH_UNITS, v) ? v : 'units';
+}
+
+function readOffsetMode() {
+  return document.querySelector('input[name="offset-mode"]:checked')?.value === 'angle' ? 'angle' : 'grid';
 }
 
 // Browsers don't enforce min/max on typed values, so clamp to the input's own
@@ -448,14 +468,86 @@ function readNumber(id, fallback, parse = parseFloat) {
 function readUnits(id, divisions = readDivisions()) {
   const v = parseFloat(document.getElementById(id).value);
   if (!(v > 0)) return 2;
-  const max = Number(document.getElementById(id).max);
-  return Math.min(max, Math.max(1 / divisions, Math.round(v * divisions) / divisions));
+  return snapUnits(v, divisions);
+}
+
+function snapUnits(v, divisions = readDivisions()) {
+  return Math.min(MAX_UNITS, Math.max(1 / divisions, Math.round(v * divisions) / divisions));
+}
+
+// The pitch, in mm, of one grid unit along the bin's X and Y: on a wall the
+// board's spacing across and up it (the Unit size for a system without one),
+// in a drawer the Unit size both ways.
+function readPitch() {
+  const unit = readGridMM();
+  if (readOrientation() !== 'vertical') return { x: unit, y: unit };
+  const { across, up } = wallSpacing(readWallSystem(), unit);
+  return { x: across, y: up };
+}
+
+// Whether the bin stands on Gridfinity feet, which need a whole foot under it
+function hasFeet() {
+  return readOrientation() === 'vertical'
+    ? readWallSystem() === 'gridfinity'
+    : document.getElementById('include-base').checked;
+}
+
+// The bin's size as generator units of the pitch. A size in a length is the
+// bin's outside, so it takes TOLERANCE_MM less than units x pitch.
+function readSize(divisions = readDivisions()) {
+  const pitch = readPitch();
+  const sizeUnit = readSizeUnit();
+  if (sizeUnit === 'units') {
+    return { gridX: readUnits('grid-x', divisions), gridY: readUnits('grid-y', divisions), pitchX: pitch.x, pitchY: pitch.y };
+  }
+  const { mm } = LENGTH_UNITS[sizeUnit];
+  const min = hasFeet() ? 1 / divisions : 0;
+  const units = (id, p) => Math.max(min, (readNumber(id, 80 / mm) * mm + TOLERANCE_MM) / p);
+  return { gridX: units('grid-x', pitch.x), gridY: units('grid-y', pitch.y), pitchX: pitch.x, pitchY: pitch.y };
+}
+
+// Set the bin size inputs' bounds and step for the Size in choice.
+function configureSizeInputs(divisions = readDivisions()) {
+  const sizeUnit = readSizeUnit();
+  const len = LENGTH_UNITS[sizeUnit];
+  for (const id of BIN_SIZE_IDS) {
+    const el = document.getElementById(id);
+    el.min = String(len ? len.min : 1 / divisions);
+    el.max = String(len ? len.max : MAX_UNITS);
+    el.step = String(len ? len.step : 1 / divisions);
+  }
+}
+
+// Size in changed from `from` to the current choice: carry each size over,
+// so the bin stays as close to the same as the new steps allow.
+let sizeUnitShown = null;
+function applySizeUnit() {
+  const from = sizeUnitShown, to = readSizeUnit();
+  sizeUnitShown = to;
+  if (from === null || from === to) { configureSizeInputs(); return; }
+  const pitch = readPitch();
+  const divisions = readDivisions();
+  const values = BIN_SIZE_IDS.map((id, i) => {
+    const p = i === 0 ? pitch.x : pitch.y;
+    const v = parseFloat(document.getElementById(id).value);
+    const outsideMM = from === 'units'
+      ? snapUnits(v > 0 ? v : 2, divisions) * p - TOLERANCE_MM
+      : (Number.isFinite(v) ? v : 0) * LENGTH_UNITS[from].mm;
+    if (to === 'units') return String(snapUnits((outsideMM + TOLERANCE_MM) / p, divisions));
+    const len = LENGTH_UNITS[to];
+    const shown = Math.min(len.max, Math.max(len.min, outsideMM / len.mm));
+    return String(Number(shown.toFixed(len.digits)));
+  });
+  configureSizeInputs(divisions);
+  BIN_SIZE_IDS.forEach((id, i) => { document.getElementById(id).value = values[i]; });
 }
 
 // Match the size inputs' step/min to the division setting and snap their values.
 function applyDivisions() {
   const divisions = readDivisions();
+  const lengths = readSizeUnit() !== 'units';
   for (const id of UNIT_INPUT_IDS) {
+    if (lengths && BIN_SIZE_IDS.includes(id)) continue;
     const el = document.getElementById(id);
     const snapped = readUnits(id, divisions);
     el.step = el.min = String(1 / divisions);
@@ -463,28 +555,67 @@ function applyDivisions() {
   }
 }
 
+// The slant, as an offset in mm and in grid units along the slant: Grid mode
+// counts units of the pitch the slant runs along (up the wall on a wall);
+// Angle mode leans the walls by that many degrees, up to the same 20-unit
+// offset limit, which a steep angle on a short bin reaches before 90°.
+function readSlant(mode = readOffsetMode()) {
+  const vertical = readOrientation() === 'vertical';
+  const pitch = readPitch();
+  const axis = document.querySelector('input[name="offset-axis"]:checked')?.value === 'y' ? 'y' : 'x';
+  const slantPitch = vertical || axis === 'y' ? pitch.y : pitch.x;
+  const maxMM = MAX_UNITS * slantPitch;
+  const wallH = Math.max(0, interiorHeightMM(readNumber('height-units', 12, parseInt)));
+  if (mode === 'grid') {
+    const units = readNumber('offset-units', 0);
+    return { offsetMM: units * slantPitch, offsetUnits: units, slantPitch, wallH, capped: false };
+  }
+  const deg = readNumber('offset-angle', 0);
+  const wanted = deg >= 90 ? Infinity : wallH * Math.tan(deg * Math.PI / 180);
+  const offsetMM = Math.min(maxMM, wanted);
+  return { offsetMM, offsetUnits: offsetMM / slantPitch, slantPitch, wallH, capped: wanted > maxMM, deg };
+}
+
+// Switching Grid / Angle carries the current slant over to the other input.
+let offsetModeShown = null;
+function applyOffsetMode() {
+  const to = readOffsetMode();
+  if (offsetModeShown !== null && offsetModeShown !== to) {
+    const { offsetMM, slantPitch, wallH } = readSlant(offsetModeShown);
+    if (to === 'angle') {
+      const deg = wallH > 0 ? Math.atan2(offsetMM, wallH) * 180 / Math.PI : 0;
+      document.getElementById('offset-angle').value = String(Math.round(deg * 2) / 2);
+    } else {
+      const units = Math.min(MAX_UNITS, Math.max(0, Math.round(offsetMM / slantPitch * 2) / 2));
+      document.getElementById('offset-units').value = String(units);
+    }
+  }
+  offsetModeShown = to;
+}
+
 // The end bin spans the slant, so its length along the offset axis tracks
 // the offset (rounded down to the division step); the cross axis stays free.
 function syncEndBinToOffset() {
   const divisions = readDivisions();
-  const offset = readNumber('offset-units', 0);
+  const offset = readSlant().offsetUnits;
   if (!(offset > 0)) return;
   const axis = document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
   // Round down so a fractional offset never makes the end bin overshoot the slant
-  const units = Math.max(1 / divisions, Math.floor(offset * divisions + 1e-9) / divisions);
+  const units = Math.min(MAX_UNITS, Math.max(1 / divisions, Math.floor(offset * divisions + 1e-9) / divisions));
   document.getElementById(axis === 'x' ? 'end-grid-x' : 'end-grid-y').value = String(units);
 }
 
 function readParams() {
   const divisions = readDivisions();
+  const slant = readSlant();
   return {
     gridMM: readGridMM(),
     divisions,
-    gridX: readUnits('grid-x', divisions),
-    gridY: readUnits('grid-y', divisions),
+    ...readSize(divisions),
     heightUnits: readNumber('height-units', 12, parseInt),
-    offsetUnits: readNumber('offset-units', 0),
-    offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value || 'x',
+    offsetUnits: slant.offsetUnits,
+    offsetMM: slant.offsetMM,
+    offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value === 'y' ? 'y' : 'x',
     wallThickness: readNumber('wall-thickness', 0.82),
     includeBase: document.getElementById('include-base').checked,
     orientation: readOrientation(),
@@ -493,6 +624,15 @@ function readParams() {
     fitClearance: readNumber('fit-clearance', 0),
     endGridX: readUnits('end-grid-x', divisions),
     endGridY: readUnits('end-grid-y', divisions),
+    // How the sizes and slant were set, for labels and file names only
+    ui: {
+      sizeUnit: readSizeUnit(),
+      sizeX: readNumber('grid-x', 2),
+      sizeY: readNumber('grid-y', 2),
+      offsetMode: readOffsetMode(),
+      offsetAngle: readNumber('offset-angle', 0),
+      slantCapped: slant.capped,
+    },
   };
 }
 
@@ -560,7 +700,7 @@ function bindControls() {
   updateThemeToggle();
 
   const controlIds = [
-    'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units',
+    'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units', 'offset-angle',
     'wall-thickness', 'include-base', 'fit-clearance',
     'end-grid-x', 'end-grid-y',
   ];
@@ -568,7 +708,8 @@ function bindControls() {
   for (const id of controlIds) {
     const el = document.getElementById(id);
     el.addEventListener('input', () => {
-      if (id === 'offset-units') syncEndBinToOffset();
+      // The end bin spans the slant, which the height sets too in Angle mode
+      if (['offset-units', 'offset-angle', 'height-units', 'grid-unit-mm'].includes(id)) syncEndBinToOffset();
       updateValueDisplays();
       scheduleRebuild();
     });
@@ -577,6 +718,22 @@ function bindControls() {
   // Snap a typed size like 1.3 to the nearest allowed step once it's committed
   for (const id of UNIT_INPUT_IDS) {
     document.getElementById(id).addEventListener('change', applyDivisions);
+  }
+
+  document.getElementById('size-unit').addEventListener('change', () => {
+    applySizeUnit();
+    updateValueDisplays();
+    scheduleRebuild();
+  });
+
+  for (const radio of document.querySelectorAll('input[name="offset-mode"]')) {
+    radio.addEventListener('change', () => {
+      applyOffsetMode();
+      applyOrientation();
+      syncEndBinToOffset();
+      updateValueDisplays();
+      scheduleRebuild();
+    });
   }
 
   // Unit size moves the scene's section lines too
@@ -590,6 +747,7 @@ function bindControls() {
 
   document.getElementById('grid-divisions').addEventListener('change', () => {
     applyDivisions();
+    configureSizeInputs();
     syncEndBinToOffset();
     updateValueDisplays();
     scheduleRebuild();
@@ -599,6 +757,7 @@ function bindControls() {
   for (const radio of document.querySelectorAll('input[name="orientation"]')) {
     radio.addEventListener('change', () => {
       applyOrientation();
+      updateValueDisplays();
       scheduleRebuild();
       flushRebuild();
       cameraNav.setView('iso');
@@ -613,9 +772,12 @@ function bindControls() {
     scheduleRebuild();
   });
 
+  // A wall system brings its board's spacing, so the sizes and offset in
+  // grid units now mean different millimetres
   for (const id of ['wall-system', 'mount-method']) {
     document.getElementById(id).addEventListener('change', () => {
       applyOrientation();
+      updateValueDisplays();
       scheduleRebuild();
     });
   }
@@ -624,6 +786,7 @@ function bindControls() {
   for (const radio of document.querySelectorAll('input[name="offset-axis"]')) {
     radio.addEventListener('change', () => {
       syncEndBinToOffset();
+      updateValueDisplays();
       scheduleRebuild();
     });
   }
@@ -641,13 +804,19 @@ function bindControls() {
     const wantEndBin = document.getElementById('download-end-bin').checked;
     const wantPart = document.getElementById('download-part').checked;
     const params = readParams();
-    const unitTag = params.gridMM !== GRID_MM ? `_unit${params.gridMM}mm` : '';
+    const { ui } = params;
     const vertical = params.orientation === 'vertical';
+    // The Unit size only matters where no board spacing replaces it
+    const ownSpacing = vertical && WALL_SYSTEMS[params.wallSystem].spacing;
+    const unitTag = params.gridMM !== GRID_MM && !ownSpacing ? `_unit${params.gridMM}mm` : '';
     const axisTag = vertical ? 'up' : params.offsetAxis;
     const methodTag = vertical && params.mountMethod ? `-${params.mountMethod}` : '';
     const wallTag = vertical ? `_wall-${params.wallSystem}${methodTag}` : '';
     const fitTag = params.fitClearance ? `_fit${params.fitClearance > 0 ? '+' : ''}${params.fitClearance.toFixed(2)}` : '';
-    const base = `slanted-gridfinity-${params.gridX}x${params.gridY}x${params.heightUnits}_offset${params.offsetUnits}${axisTag}${unitTag}${wallTag}${fitTag}`;
+    // 2x2 in grid units, or 100mmx80mm; offset2x in grid units, or slant30degx
+    const sizeTag = ui.sizeUnit === 'units' ? `${params.gridX}x${params.gridY}` : `${ui.sizeX}${ui.sizeUnit}x${ui.sizeY}${ui.sizeUnit}`;
+    const slantTag = ui.offsetMode === 'angle' ? `${ui.offsetAngle}deg${axisTag}` : `${params.offsetUnits}${axisTag}`;
+    const base = `slanted-gridfinity-${sizeTag}x${params.heightUnits}_${ui.offsetMode === 'angle' ? 'slant' : 'offset'}${slantTag}${unitTag}${wallTag}${fitTag}`;
 
     // Main bin
     if (wantBin) {
@@ -669,7 +838,8 @@ function bindControls() {
     }
 
     // Tell the page what was exported, e.g. 'both:2x2:h12:o2x', or
-    // 'bin-part:2x1:h6:o1up' with a wall mount part. The app itself sends
+    // 'bin-part:2x1:h6:o1up' with a wall mount part ('100mmx80mm' for a size
+    // in a length, 'a30degx' for a slant set by angle). The app itself sends
     // nothing anywhere; a site that hosts it can listen for this event to
     // count exports (README, "Embedding").
     const gotEnd = wantEndBin && endBinMesh;
@@ -679,7 +849,7 @@ function bindControls() {
     document.dispatchEvent(new CustomEvent('tool-action', {
       detail: {
         action: 'export',
-        detail: `${parts}:${params.gridX}x${params.gridY}:h${params.heightUnits}:o${params.offsetUnits}${axisTag}`,
+        detail: `${parts}:${sizeTag}:h${params.heightUnits}:${ui.offsetMode === 'angle' ? 'a' : 'o'}${slantTag}`,
       },
     }));
   });
@@ -714,53 +884,91 @@ function applyOrientation() {
   show('offset-axis-row', !vertical);
   show('base-section', !vertical);
   show('end-bin-section', !vertical);
+  // A board with its own spacing replaces the Unit size input
+  const ownSpacing = vertical && Boolean(WALL_SYSTEMS[readWallSystem()].spacing);
+  show('grid-unit-mm', !ownSpacing);
+  show('grid-unit-fixed', ownSpacing);
+  const angle = readOffsetMode() === 'angle';
+  show('offset-units-row', !angle);
+  show('offset-angle-row', angle);
   document.getElementById('orientation-val').textContent = vertical ? 'on a wall' : 'in a drawer';
-  document.getElementById('grid-size-val').textContent = vertical ? 'width × height on the wall' : 'X × Y units';
 }
 
+// mm with at most one decimal, no trailing zero: 40, 40.9
+const fmtMM = (v) => String(Number(v.toFixed(1)));
+// A pitch pair: '42' when square, '40.9 × 23.6' otherwise
+const fmtPitch = ({ x, y }) => (Math.abs(x - y) < 1e-9 ? fmtMM(x) : `${fmtMM(x)} × ${fmtMM(y)}`);
+
 function updateValueDisplays() {
+  const params = readParams();
+  const { ui, divisions } = params;
   const unit = readGridMM();
-  const divisions = readDivisions();
+  const vertical = params.orientation === 'vertical';
+  const pitch = { x: params.pitchX, y: params.pitchY };
+  const system = WALL_SYSTEMS[params.wallSystem];
+  const setText = (id, text) => { document.getElementById(id).textContent = text; };
 
   const fit = readNumber('fit-clearance', 0);
-  document.getElementById('fit-clearance-val').textContent =
-    fit === 0 ? 'mm per side; published fits' : `mm per side; ${fit > 0 ? 'looser' : 'tighter'}`;
+  setText('fit-clearance-val', fit === 0 ? 'mm per side; published fits' : `mm per side; ${fit > 0 ? 'looser' : 'tighter'}`);
 
-  // Grid unit
-  document.getElementById('grid-unit-val').textContent = divisions > 1
-    ? `${1 / divisions}u steps, ${(unit / divisions).toFixed(1)}mm feet`
-    : `1u = ${unit}mm${unit === GRID_MM ? ' (standard)' : ''}`;
+  // Unit size: the board's spacing on a wall that has one, else the input
+  if (vertical && system.spacing) {
+    setText('grid-unit-fixed', `${fmtPitch(pitch)} mm`);
+    setText('grid-unit-note', `${system.label.replace(/ \(.*\)$/, '')} spacing`);
+  } else {
+    setText('grid-unit-note', vertical && params.wallSystem === 'cleat' ? 'mm per unit; a cleat has no grid' : 'mm per grid unit');
+  }
+
+  // Divisions: the step, and the feet it makes where there are feet
+  const step = { x: pitch.x / divisions, y: pitch.y / divisions };
+  setText('grid-unit-val', hasFeet()
+    ? (divisions > 1 ? `${1 / divisions}u steps, ${fmtMM(step.x)}mm feet` : `1u = ${fmtMM(unit)}mm${unit === GRID_MM ? ' (standard)' : ''}`)
+    : `${divisions > 1 ? `${1 / divisions}u steps` : '1u'} = ${fmtPitch(step)}mm`);
+
+  // Size in, and what the two size inputs mean
+  const across = vertical ? 'across × up the wall' : 'X × Y';
+  if (ui.sizeUnit === 'units') {
+    setText('size-unit-val', `of ${fmtPitch(pitch)} mm`);
+    setText('grid-size-val', `${across}, units`);
+  } else {
+    setText('size-unit-val', 'any size');
+    // Feet need a whole foot under the bin, so a smaller size grows to one
+    const minMM = (1 / divisions) * unit - TOLERANCE_MM;
+    const raised = hasFeet() && Math.min(ui.sizeX, ui.sizeY) * LENGTH_UNITS[ui.sizeUnit].mm < minMM - 1e-6;
+    const feet = hasFeet()
+      ? `, ${footCount(params.gridX, divisions)} × ${footCount(params.gridY, divisions)} feet${raised ? `; at least ${fmtMM(minMM)}mm` : ''}`
+      : '';
+    setText('grid-size-val', `${across} outside, ${ui.sizeUnit}${feet}`);
+  }
 
   // Height
-  const hu = readNumber('height-units', 1, parseInt);
-  document.getElementById('height-units-val').textContent =
-    `${(hu * HEIGHT_UNIT_MM).toFixed(0)}mm total, ${interiorHeightMM(hu).toFixed(0)}mm inside`;
+  const hu = params.heightUnits;
+  setText('height-units-val', `${(hu * HEIGHT_UNIT_MM).toFixed(0)}mm total, ${interiorHeightMM(hu).toFixed(0)}mm inside`);
 
-  // Offset
-  const ou = readNumber('offset-units', 0);
-  document.getElementById('offset-units-val').textContent =
-    `grid units, ${(ou * unit).toFixed(0)}mm`;
+  // Slant: offset and angle are two views of one lean
+  const wallH = Math.max(0, interiorHeightMM(hu));
+  const deg = wallH > 0 ? Math.atan2(params.offsetMM, wallH) * 180 / Math.PI : 0;
+  const from = vertical ? 'from level' : 'from vertical';
+  setText('offset-mode-val', ui.offsetMode === 'angle' ? 'any angle' : 'opening on the grid');
+  setText('offset-units-val', `${vertical ? 'units up the wall' : 'grid units'}, ${params.offsetMM.toFixed(0)}mm, ${deg.toFixed(1)}°`);
+  setText('offset-angle-val', ui.slantCapped
+    ? `° ${from}; capped at ${params.offsetMM.toFixed(0)}mm offset, ${deg.toFixed(1)}°`
+    : `° ${from}, ${params.offsetMM.toFixed(0)}mm offset`);
 
   // Max pen length: 3D diagonal from one bottom interior corner to the
   // opposite top interior corner.  Uses interior dimensions (innerW/innerD)
   // so the measurement reflects the actual space a pen can occupy.
-  const wt = readNumber('wall-thickness', 0.82);
-  const gx = readUnits('grid-x', divisions);
-  const gy = readUnits('grid-y', divisions);
-  const intH = interiorHeightMM(hu);
-  const totalOff = ou * unit;
-  const intW = interiorWidthMM(gx, wt, unit);
-  const intD = interiorWidthMM(gy, wt, unit);
+  const wt = params.wallThickness;
+  const intW = params.gridX * params.pitchX - TOLERANCE_MM - 2 * wt;
+  const intD = params.gridY * params.pitchY - TOLERANCE_MM - 2 * wt;
   // On a wall the slant runs up the bin's Y size (its height on the wall)
-  const axis = readOrientation() === 'vertical'
-    ? 'y' : document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
+  const axis = vertical ? 'y' : params.offsetAxis;
   // Pen spans from bottom near-corner to top far-corner of interior
-  const spanOffset = totalOff + (axis === 'x' ? intW : intD);
+  const spanOffset = params.offsetMM + (axis === 'x' ? intW : intD);
   const spanCross = axis === 'x' ? intD : intW;
-  const maxPen = Math.sqrt(spanOffset * spanOffset + spanCross * spanCross + intH * intH);
-  document.getElementById('diagonal-val').textContent =
-    `Max pen length: ${maxPen.toFixed(1)}mm`;
-  document.getElementById('wall-thickness-val').textContent = `${wt.toFixed(2)}mm`;
+  const maxPen = Math.sqrt(spanOffset * spanOffset + spanCross * spanCross + wallH * wallH);
+  setText('diagonal-val', `Max pen length: ${maxPen.toFixed(1)}mm`);
+  setText('wall-thickness-val', `${wt.toFixed(2)}mm`);
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +1014,10 @@ function renderFrame() {
 // Init
 // ---------------------------------------------------------------------------
 
+// Inputs the browser restored on reload count as the current choice
+sizeUnitShown = readSizeUnit();
+offsetModeShown = readOffsetMode();
+configureSizeInputs();
 syncEndBinToOffset();
 applyOrientation();
 updateValueDisplays();

@@ -43,20 +43,28 @@ export const PARAM_HELP = {
   'grid.unit': {
     title: 'Unit size',
     meta: 'mm per grid unit · default 42 (standard) · 20 to 100',
-    what: 'The pitch of the baseplate the bin sits in. A bin is this many millimetres per unit, less 0.5 mm so neighbouring bins fit side by side. The feet and the preview grid follow it.',
+    what: 'The pitch a grid unit stands for. A bin is this many millimetres per unit, less 0.5 mm so neighbouring bins fit side by side. The feet and the preview grid follow it.',
     why: 'Leave it at 42 mm for standard Gridfinity. Change it only for a baseplate with a different pitch.',
+    note: 'On a wall board with its own spacing (openGrid 28, Multiboard 25, SKÅDIS 40, HSW 40.9 across by 23.6 up, GOEWS 42 across by 36.4 up) the unit is that spacing and this setting hides.',
   },
   'grid.divisions': {
     title: 'Divisions',
     meta: 'Whole · Half · default Whole',
-    what: 'The step that bin sizes snap to. Half allows sizes in 0.5-unit steps and puts a foot under every half unit, 21 mm across at the standard pitch.',
+    what: 'The step that sizes in grid units snap to. Half allows 0.5-unit steps and puts a foot under every half unit, 21 mm across at the standard pitch.',
     why: 'Choose Half to fill a gap narrower than a whole unit. The half-size feet still seat in a standard baseplate.',
-    note: 'Changing it snaps every size to the new step.',
+    note: 'Changing it snaps every size in grid units to the new step.',
+  },
+  'grid.sizeUnit': {
+    title: 'Size in',
+    meta: 'Grid units · mm · cm · in · default Grid units',
+    what: 'How you give the bin size. Grid units count the pitch, so bins line up on the baseplate or board. A length sets the bin\'s outside size directly.',
+    why: 'Use grid units to tile bins on a grid. Use a length to fill an exact gap; feet then fill whole units, centred, and the bin overhangs them.',
+    note: 'Switching carries the current size over, rounded to the new steps.',
   },
   'grid.size': {
     title: 'Bin size',
-    meta: 'grid units, X × Y · default 2 × 2 · 1 to 20 (0.5 to 20 with Half)',
-    what: 'The footprint of the bin at its base. At the standard pitch a 2 × 2 bin is 83.5 mm square outside.',
+    meta: 'grid units: 1 to 20 (0.5 with Half) · mm: 10 to 840 · default 2 × 2',
+    what: 'The footprint of the bin at its base. In grid units a 2 × 2 bin at 42 mm is 83.5 mm square outside; in a length it is the outside size.',
     why: 'Size it to what you store. The top shifts by the offset, so along the offset axis the bin and its end bin take this size plus the offset in drawer length.',
     note: 'Mounted vertically, X is the width across the wall and Y the height up it.',
   },
@@ -74,7 +82,7 @@ export const PARAM_HELP = {
     meta: '7 systems · default openGrid',
     what: 'Sets what the bin\'s back carries to suit your board: Multiconnect slots (openGrid 28 mm, Multiboard 25 mm), SKÅDIS, HSW, GOEWS or French cleat mounts, or Gridfinity feet with magnet holes.',
     why: 'Pick the board you have. Only the bin side is made; use the board\'s own connectors or HSW inserts. The line below says what fits.',
-    note: 'Mounts sit at the board\'s pitch, centred on the back. A back too small for one gets none.',
+    note: 'Grid units follow the board\'s spacing, so neighbouring bins land on its holes. Mounts sit at the board\'s pitch, centred on the back; a back too small for one gets none.',
   },
   'mount.method': {
     title: 'Attachment',
@@ -94,11 +102,26 @@ export const PARAM_HELP = {
   },
 
   // ── Slant offset ────────────────────────────────────────────────────────
+  'offset.mode': {
+    title: 'Set by',
+    meta: 'Grid · Angle · default Grid',
+    what: 'Grid shifts the top by whole or half grid units, so the opening lands on the grid. Angle leans the walls by the degrees you give, whatever offset that makes.',
+    why: 'Use Grid to tile slanted bins with their end bins. Use Angle when the lean matters more, such as for a tool that rests at a set angle.',
+    note: 'Switching carries the current slant over.',
+  },
   'offset.units': {
     title: 'Offset',
     meta: 'grid units · default 2 · 0 to 20 in steps of 0.5',
     what: 'How far the top of the bin shifts sideways from its base. The walls lean by that much over the bin\'s height.',
     why: 'A larger offset lays long items at a lower angle, so they fit a shallow drawer. It also needs more drawer length, since the end bin under the overhang grows with it. At 0 the bin is straight and has no end bin.',
+    note: 'On a wall the units are the board\'s spacing up it.',
+    diagram: 'offset',
+  },
+  'offset.angle': {
+    title: 'Angle',
+    meta: 'degrees · default 30 · 0 to 90',
+    what: 'How far the walls lean from straight: from vertical in a drawer, from level on a wall. The offset is the inside height times its tangent.',
+    why: 'A steeper angle lays items lower but needs more length and thins the walls across their lean. The offset stops at 20 grid units, so near 90° the line below shows the angle you get.',
     diagram: 'offset',
   },
   'offset.axis': {

@@ -249,12 +249,18 @@ function addMagnetFoot(mesh, cx, cy, footTop, holes, cornerSegments, fit) {
   loft(mesh, upper.map(dz => ({ t: dz, contour: ring(insetAt(dz)) })), toWorld);
 }
 
+// Feet that fit under a bin `units` wide: whole steps only, so a size set in
+// millimetres gets the feet that fit inside it, centred.
+export function footCount(units, divisions = 1) {
+  return Math.max(1, Math.floor(units * divisions + 1e-6));
+}
+
 function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false, fit = 0) {
   const [cox, coy] = centerOffset;
   const pitch = gridMM / divisions;
   const footTop = pitch - TOLERANCE_MM;
-  const feetX = Math.max(1, Math.round(gridX * divisions));
-  const feetY = Math.max(1, Math.round(gridY * divisions));
+  const feetX = footCount(gridX, divisions);
+  const feetY = footCount(gridY, divisions);
 
   for (let ix = 0; ix < feetX; ix++) {
     for (let iy = 0; iy < feetY; iy++) {
@@ -265,8 +271,9 @@ function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divis
         // Holes that sit fully on the foot's flat underside
         const reach = footTop / 2 - footInset(BASE_UNIT_PROFILE_LEVELS[0].inset, fit) - (MAGNET_RADIUS + fit) - 0.4;
         const holes = [];
-        for (const mx of magnetPositions(gridX, gridMM)) {
-          for (const my of magnetPositions(gridY, gridMM)) {
+        // On the grid the feet span, which a size in millimetres may overhang
+        for (const mx of magnetPositions(feetX / divisions, gridMM)) {
+          for (const my of magnetPositions(feetY / divisions, gridMM)) {
             if (Math.abs(mx + cox - cx) <= reach && Math.abs(my + coy - cy) <= reach) holes.push([mx + cox, my + coy]);
           }
         }
@@ -311,11 +318,18 @@ function plateShift(includeBase) {
 // Main slanted bin generator
 // ---------------------------------------------------------------------------
 
+// Sizes: `gridX` x `gridY` units of `pitchX` x `pitchY` mm (both the Unit size
+// by default; a wall system's board spacing on a wall, where X runs across
+// it and Y up it). The slant: `offsetMM` when given, else `offsetUnits` of
+// the pitch along the offset axis.
 export function generateSlantedBin({
   gridX = 2,
   gridY = 2,
+  pitchX,
+  pitchY,
   heightUnits = 12,
   offsetUnits = 2,
+  offsetMM,
   offsetAxis = 'x',
   wallThickness = 0.82,
   includeBase = true,
@@ -334,17 +348,22 @@ export function generateSlantedBin({
   // turned: local X (the slant) goes up, local Z (the height) out from the
   // wall. gridX is then the width across the wall and gridY the height up it.
   const vertical = orientation === 'vertical';
+  pitchX ??= gridMM;
+  pitchY ??= gridMM;
+  // On a wall the slant runs up, along Y
+  const totalOffset = Number.isFinite(offsetMM) ? Math.max(0, offsetMM)
+    : offsetUnits * (vertical || offsetAxis === 'y' ? pitchY : pitchX);
   if (vertical) {
     if (!WALL_SYSTEMS[wallSystem]) wallSystem = DEFAULT_WALL_SYSTEM;
     [gridX, gridY] = [gridY, gridX];
+    [pitchX, pitchY] = [pitchY, pitchX];
     offsetAxis = 'x';
     includeBase = wallSystem === 'gridfinity';
   }
 
-  const outerW = binOuterMM(gridX, gridMM);
-  const outerD = binOuterMM(gridY, gridMM);
+  const outerW = binOuterMM(gridX, pitchX);
+  const outerD = binOuterMM(gridY, pitchY);
   const wallH = interiorHeightMM(heightUnits);
-  const totalOffset = offsetUnits * gridMM;
   const t = wallThickness;
 
   function getOffset(z) {
@@ -465,12 +484,14 @@ export function generateWallPart({
   gridX = 2,
   gridY = 2,
   gridMM = GRID_MM,
+  pitchX = gridMM,
+  pitchY = gridMM,
   wallSystem = DEFAULT_WALL_SYSTEM,
   mountMethod = null,
   fitClearance = 0,
 } = {}) {
   // The same back face as the vertical bin: gridX across the wall, gridY up it
-  const back = { W: binOuterMM(gridX, gridMM), H: binOuterMM(gridY, gridMM), R: BASE_CORNER_RADIUS };
+  const back = { W: binOuterMM(gridX, pitchX), H: binOuterMM(gridY, pitchY), R: BASE_CORNER_RADIUS };
   const plan = planWallMount(wallSystem, back,
     { method: mountMethod, slabMM: -BRIDGE_Z_BOTTOM, fit: clampFit(fitClearance) });
   if (!plan.fits || !plan.part) return null;
@@ -495,6 +516,7 @@ export function generateEndBin({
   gridY = 2,
   heightUnits = 12,
   offsetUnits = 2,
+  offsetMM,
   offsetAxis = 'x',
   includeBase = true,
   cornerSegments = CORNER_SEGMENTS,
@@ -510,7 +532,7 @@ export function generateEndBin({
   const mainOuterW = binOuterMM(gridX, gridMM);
   const mainOuterD = binOuterMM(gridY, gridMM);
   const wallH = interiorHeightMM(heightUnits);
-  const totalOffset = offsetUnits * gridMM;
+  const totalOffset = Number.isFinite(offsetMM) ? Math.max(0, offsetMM) : offsetUnits * gridMM;
 
   const endOuterW = binOuterMM(endGridX, gridMM);
   const endOuterD = binOuterMM(endGridY, gridMM);
