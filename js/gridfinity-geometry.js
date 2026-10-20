@@ -55,6 +55,11 @@ const BASE_UNIT_PROFILE_LEVELS = [
 
 const BRIDGE_Z_BOTTOM = -BASE_HEIGHT_MM + 4.75; // = -2.25
 
+// A hollow end bin's cavities are left out where they would be lower than
+// this, and its slanted top is never thinner than MIN_CAP_MM vertically
+const MIN_CAVITY_MM = 1;
+const MIN_CAP_MM = 0.6;
+
 // Magnet holes for a magnetic (e.g. wall-mounted) baseplate: 6 x 2mm magnets
 // in 6.5 x 2.4mm holes, open on the foot's underside, centred 8mm in from
 // the grid lines of each cell, matching the baseplate's own magnets.
@@ -365,7 +370,9 @@ export function footCount(units, divisions = 1) {
   return Math.max(1, Math.floor(units * divisions + 1e-6));
 }
 
-function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false, fit = 0) {
+// With `hollow` ({ t, cavity }, the hollow end bin) each plain foot is
+// hollowed too, its cavity opening up into the body's (see addFootCavity).
+function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divisions, magnets = false, fit = 0, hollow = null) {
   const [cox, coy] = centerOffset;
   const pitch = gridMM / divisions;
   const footTop = pitch - TOLERANCE_MM;
@@ -405,8 +412,69 @@ function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divis
         addStrip(mesh, unitRings[i], unitRings[i + 1]);
       }
       addFan(mesh, unitRings[unitRings.length - 1], [cx, cy, BRIDGE_Z_BOTTOM], false);
+      if (hollow) addFootCavity(mesh, cx, cy, footTop, cornerSegments, fit, hollow.t, hollow.cavity);
     }
   }
+}
+
+// A plain foot's cavity, faces pointing into it: the foot profile's three
+// edges (45° chamfer, vertical, 45° chamfer) offset `t` square to each, as
+// horizontal insets at height dz above the foot's underside, from `t` above
+// the underside to `t / 2` below the foot's top. Its top ring rises as a
+// chimney to the body cavity's floor (`cavity`, see endBinCavity), through
+// the faces where foot and body touch: one cavity shell, so the winding
+// stays zero across them. A chimney keeps to the body cavity's span along
+// the offset, `t` in; the rest of the ring is roofed over, and a foot wholly
+// outside it (or with no body cavity) stays sealed.
+function addFootCavity(mesh, cx, cy, footTop, cornerSegments, fit, t, cavity) {
+  const s = t * Math.SQRT2;
+  const insetAt = (dz) => Math.min(4.75 - dz + s, Math.max(2.95 - dz + s, 2.15 + t));
+  const bottom = t, top = 4.75 - t / 2;
+  if (top - bottom < MIN_CAVITY_MM) return;
+  const levels = [bottom, 0.8 + s - t, 2.6 + s - t, top].filter((dz) => dz >= bottom && dz <= top);
+  const rings = [];
+  for (const dz of levels) {
+    // A negative clearance fattens the foot, so it only ever thickens the walls
+    const inset = insetAt(dz) + Math.max(0, fit);
+    const w = footTop - 2 * inset;
+    if (w <= 1) return;
+    rings.push(makeRing(-BASE_HEIGHT_MM + dz, w, w, Math.max(0.01, BASE_CORNER_RADIUS - inset), [cx, cy], cornerSegments));
+  }
+  const topZ = -BASE_HEIGHT_MM + top;
+  addFan(mesh, rings[0], [cx, cy, -BASE_HEIGHT_MM + bottom], false);
+  for (let i = 0; i < rings.length - 2; i++) addStrip(mesh, rings[i], rings[i + 1], true);
+  const below = rings[rings.length - 2], ring = rings[rings.length - 1];
+
+  // The top ring with a point added wherever it crosses the chimney's span
+  const lo = cavity ? cavity.lo + t : 0, hi = cavity ? cavity.hi - t : 0;
+  const k = cavity ? cavity.k : 0;
+  const chains = cutChains(ring, k, [lo, hi]);
+  const split = chains.flat();
+  const eps = 1e-9;
+  const opening = cavity ? split.filter((p) => p[k] >= lo - eps && p[k] <= hi + eps) : [];
+  if (opening.length < 3) {
+    addStrip(mesh, below, ring, true);
+    addFan(mesh, ring, [cx, cy, topZ], true);
+    return;
+  }
+
+  // Wall up to the split ring: each edge's quad fanned over its added points
+  for (let i = 0; i < ring.length; i++) {
+    const j = (i + 1) % ring.length;
+    const chain = [...chains[i], ring[j]];
+    mesh.tri(below[i], chain[chain.length - 1], below[j]);
+    for (let c = 0; c < chain.length - 1; c++) mesh.tri(below[i], chain[c], chain[c + 1]);
+  }
+  // Roof over the ring outside the span; both pieces are convex
+  for (const roof of [split.filter((p) => p[k] <= lo + eps), split.filter((p) => p[k] >= hi - eps)]) {
+    if (roof.length < 3) continue;
+    const n = roof.length;
+    addFan(mesh, roof, roof.reduce((c, p) => [c[0] + p[0] / n, c[1] + p[1] / n, topZ], [0, 0, 0]), true);
+  }
+  // The chimney, open at the top: a hole in the body cavity's floor
+  const up = opening.map(([x, y]) => [x, y, cavity.floorZ]);
+  addStrip(mesh, opening, up, true);
+  cavity.holes.push(opening.map(([x, y]) => [x, y]));
 }
 
 // Bridge: the solid floor slab from z = BRIDGE_Z_BOTTOM up to `topRing` at
@@ -688,20 +756,36 @@ export function generateWallPart({
 // End bin generator — wedge that fills the gap under the slanted bin.
 //
 // Surfaces: gridfinity base, the bridge slab under z=0, vertical outer
-// walls trimmed by the slant plane, and an angled top cap.
+// walls trimmed by the slant plane, and an angled top cap. The top's edge
+// along the far wall is flattened into a land two wall thicknesses wide, so
+// its last layers stay two lines wide instead of narrowing to a knife edge
+// the slicer can only print as a line out and back.
 //
-// With `hollow`, a sealed cavity sits inside it: walls and the top cap keep
-// `wallThickness` (the top measured square to the slant) and the floor is
-// the bridge slab. The cavity is its own inward-facing shell, so the slicer
-// leaves it empty instead of filling the wedge with infill. Where the wedge
-// is too low for a cavity (its thin edge by the main bin) it stays solid.
+// With `hollow`, the whole part is a thin shell around one sealed cavity:
+// walls and floor keep `wallThickness`, and so does the top cap in every
+// layer (measured across the layer, like the main bin's walls, but at least
+// MIN_CAP_MM thick vertically), so each layer prints as one even loop. The
+// cavity reaches down through the bridge slab into every foot, and under the
+// land its ceiling turns flat: it ends one line wide rather than pinching to
+// a slit. It is its own inward-facing shell, so the slicer leaves it empty
+// instead of filling the wedge with infill. Where the wedge is too low for a
+// cavity (its thin edge by the main bin) it stays solid.
 //
 // The slant plane rises from z=0 at the main bin's base edge to z=wallH
 // at the far end of the offset.
 // ---------------------------------------------------------------------------
 
-// The cavity is left out where it would be lower than this
-const MIN_CAVITY_MM = 1;
+
+// Each edge of a closed `ring` as [its start, ...the points where it crosses
+// p[k] = c for each of `cuts`, in order along it]
+function cutChains(ring, k, cuts) {
+  return ring.map((a, i) => {
+    const b = ring[(i + 1) % ring.length];
+    const fs = cuts.filter((c) => (a[k] - c) * (b[k] - c) < 0)
+      .map((c) => (c - a[k]) / (b[k] - a[k])).sort((u, v) => u - v);
+    return [a, ...fs.map((f) => a.map((v, d) => v + f * (b[d] - v)))];
+  });
+}
 
 // Clip a CCW 2D polygon to lo <= p[k] <= hi; stays CCW (Sutherland-Hodgman)
 function clipToSlab(poly, k, lo, hi) {
@@ -782,66 +866,103 @@ export function generateEndBin({
     return wallH * (coord - mainEdge) / totalOffset - zOffset;
   }
 
+  // Where the top stops following the slant and turns flat: the wall top,
+  // or the land along the far wall, whichever comes first
+  const k = offsetAxis === 'x' ? 0 : 1;
+  const t = wallThickness;
+  const slope = wallH / totalOffset;
+  const slanted = wallH > 0 && totalOffset > 0;
+  const coordAtSlant = (z) => mainEdge + (z + zOffset) / slope;
+  const far = mainEdge + gap + (k === 0 ? endOuterW : endOuterD);
+  const landStart = slanted ? Math.min(coordAtSlant(wallH), far - 2 * t) : 0;
+  const slantStart = slanted ? coordAtSlant(0) : 0;
+  const cuts = slanted && landStart > slantStart ? [slantStart, landStart] : [];
+  const topMax = cuts.length ? wallH * (landStart - mainEdge) / totalOffset - zOffset : 0;
+
   // --- BASE ---
+  const hollowed = hollow && cuts.length > 0;
+  // The top cap's vertical thickness: one wall thickness across each layer
+  const capZ = Math.max(t * slope, MIN_CAP_MM);
+  const cavity = hollowed ? endBinCavity({
+    endOuterW, endOuterD, endCenter, cornerSegments, t, k,
+    roofZ: topMax - capZ, roofStart: landStart,
+    // Coordinate along the offset where the cavity ceiling reaches height z
+    coordAt: (z) => coordAtSlant(z + capZ),
+  }) : null;
   if (includeBase) {
-    addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions, false, fit);
+    addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions, false, fit,
+      hollowed ? { t, cavity } : null);
   }
 
   // --- SOLID WEDGE (z=0 to slant plane) ---
 
-  // Bottom ring at z=0
-  const outerBottom = makeRing(
-    0, endOuterW, endOuterD, BASE_CORNER_RADIUS, endCenter, cornerSegments
-  );
-
-  // Top ring: each vertex projected up to the slant plane
-  // (capped at the wall top, where the slant ends, for end bins longer than the offset)
-  const outerTop = outerBottom.map(([x, y]) => [x, y, Math.min(wallH, Math.max(0, slantZ(x, y)))]);
+  // The outline, with a point added wherever it crosses the lines along which
+  // the slant plane meets z = 0 and where the top turns flat; the top is
+  // clamped between the two, so the cap is flat beyond them
+  const outline = cutChains(
+    roundedRectPoints(endOuterW, endOuterD, BASE_CORNER_RADIUS, cornerSegments, endCenter[0], endCenter[1]), k, cuts,
+  ).flat();
+  const outerBottom = outline.map(([x, y]) => [x, y, 0]);
+  const outerTop = outline.map(([x, y]) => [x, y, Math.min(topMax, Math.max(0, slantZ(x, y)))]);
 
   // One closed shell: floor slab (z=-2.25 to 0), outer walls (vertical
   // sides, top edge follows slant) and the top cap below
-  addBridge(mesh, endOuterW, endOuterD, endCenter, cornerSegments, outerBottom);
+  const slabBottom = outline.map(([x, y]) => [x, y, BRIDGE_Z_BOTTOM]);
+  addFan(mesh, slabBottom, [endCenter[0], endCenter[1], BRIDGE_Z_BOTTOM], true);
+  addStrip(mesh, slabBottom, outerBottom);
   addStrip(mesh, outerBottom, outerTop);
 
-  // Solid angled top cap (normal facing up/outward along slant)
-  // Fan from the centroid of the top ring
-  let cx = 0, cy = 0, cz = 0;
-  for (const [x, y, z] of outerTop) { cx += x; cy += y; cz += z; }
-  const n = outerTop.length;
-  const topCenter = [cx / n, cy / n, cz / n];
-  addFan(mesh, outerTop, topCenter, false);
+  // Top cap facing up: the slanted part and the flat parts on either side
+  addPlanarCap(mesh, outerTop, k, cuts, false);
 
-  if (hollow && totalOffset > 0) addEndBinCavity(mesh, {
-    endOuterW, endOuterD, endCenter, wallH, cornerSegments, t: wallThickness,
-    k: offsetAxis === 'x' ? 0 : 1,
-    // The cavity ceiling: the slant plane, `t` lower measured square to it
-    ceilingZ: (x, y) => slantZ(x, y) - wallThickness * slantLength / totalOffset,
-    // Coordinate along the offset where that ceiling reaches height z
-    coordAt: (z) => mainEdge + (z + zOffset + wallThickness * slantLength / totalOffset) * totalOffset / wallH,
-  });
+  // The cavity ceiling: the top, capZ lower
+  if (cavity) addEndBinCavity(mesh, cavity, (x, y) => Math.min(topMax, slantZ(x, y)) - capZ);
 
   return mesh.finish(plateShift(includeBase));
 }
 
-// The end bin's cavity: the inner outline (the outer one `t` in) clipped to
-// where the ceiling stands at least MIN_CAVITY_MM above the floor (z = 0) and
-// stays a plane (below the flat top at wallH - t). Faces point into it.
-function addEndBinCavity(mesh, { endOuterW, endOuterD, endCenter, wallH, cornerSegments, t, k, ceilingZ, coordAt }) {
+// A cap over `ring` (points with z), split along axis `k` at each of `cuts`
+// into convex pieces, each fanned from its own centroid: where the ring's
+// height follows a different plane on each side of a cut, every triangle
+// stays in its piece's plane. `flip` faces it down.
+function addPlanarCap(mesh, ring, k, cuts, flip) {
+  const eps = 1e-9;
+  const bounds = [-Infinity, ...cuts, Infinity];
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const piece = ring.filter((p) => p[k] >= bounds[i] - eps && p[k] <= bounds[i + 1] + eps);
+    if (piece.length < 3) continue;
+    const n = piece.length;
+    addFan(mesh, piece, piece.reduce((c, p) => [c[0] + p[0] / n, c[1] + p[1] / n, c[2] + p[2] / n], [0, 0, 0]), flip);
+  }
+}
+
+// The end bin's cavity, above the feet: the inner outline (the outer one `t`
+// in) clipped along the offset (axis `k`) to start at `lo`, where the ceiling
+// stands MIN_CAVITY_MM above the floor. From `roofStart` on, the ceiling is
+// flat at `roofZ`. The floor is `t` above the slab's underside; the feet's
+// chimneys add their openings to `holes`. Null when there's no room.
+function endBinCavity({ endOuterW, endOuterD, endCenter, cornerSegments, t, k, roofZ, roofStart, coordAt }) {
   const innerW = endOuterW - 2 * t;
   const innerD = endOuterD - 2 * t;
-  if (innerW <= 0 || innerD <= 0 || wallH - t <= MIN_CAVITY_MM) return;
+  const floorZ = BRIDGE_Z_BOTTOM + t;
+  if (innerW <= 0 || innerD <= 0 || roofZ - floorZ <= MIN_CAVITY_MM) return null;
   const halfAngle = Math.PI / (4 * cornerSegments);
   const innerR = Math.max(0.01, BASE_CORNER_RADIUS - t / Math.cos(halfAngle));
-  const outline = clipToSlab(
-    roundedRectPoints(innerW, innerD, innerR, cornerSegments, endCenter[0], endCenter[1]),
-    k, coordAt(MIN_CAVITY_MM), coordAt(wallH - t),
+  const lo = coordAt(floorZ + MIN_CAVITY_MM), hi = Infinity;
+  const clipped = clipToSlab(
+    roundedRectPoints(innerW, innerD, innerR, cornerSegments, endCenter[0], endCenter[1]), k, lo, hi,
   );
-  if (outline.length < 3) return;
+  if (clipped.length < 3) return null;
+  const outline = cutChains(clipped, k, [roofStart]).flat();
+  return { outline, floorZ, k, lo, hi, roofStart, holes: [] };
+}
 
-  const floor = outline.map(([x, y]) => [x, y, 0]);
+// The body cavity's floor (with the chimneys' openings), walls and ceiling,
+// faces pointing into it
+function addEndBinCavity(mesh, { outline, floorZ, k, roofStart, holes }, ceilingZ) {
+  writeCap(mesh, outline, holes, (x, y, z) => [x, y, z], floorZ, true);
+  const floor = outline.map(([x, y]) => [x, y, floorZ]);
   const ceiling = outline.map(([x, y]) => [x, y, ceilingZ(x, y)]);
-  const centre = (ring) => ring.reduce((c, p) => [c[0] + p[0] / ring.length, c[1] + p[1] / ring.length, c[2] + p[2] / ring.length], [0, 0, 0]);
-  addFan(mesh, floor, centre(floor), false);
   addStrip(mesh, floor, ceiling, true);
-  addFan(mesh, ceiling, centre(ceiling), true);
+  addPlanarCap(mesh, ceiling, k, [roofStart], true);
 }

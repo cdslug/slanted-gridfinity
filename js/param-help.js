@@ -194,7 +194,7 @@ export const PARAM_HELP = {
   'end.hollow': {
     title: 'Hollow end bin',
     meta: 'on / off · default on',
-    what: 'Leaves a sealed empty space inside the end bin. Its walls and slanted top keep the bin\'s wall thickness and the 2.25 mm floor stays. The cavity is its own shell, so your slicer leaves it empty instead of filling it with infill.',
+    what: 'Makes the end bin a thin shell: its walls, floor and slanted top are one wall thickness in every layer, and the hollow runs down into every foot. It is sealed as a shell of its own, so your slicer leaves it empty instead of filling it with infill.',
     why: 'Keep it on to print the wedge faster with less filament. Turn it off for a solid wedge filled at your slicer\'s infill.',
     note: 'The thin edge by the main bin stays solid. Thicker walls make the hollow wedge stiffer.',
   },

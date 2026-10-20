@@ -891,7 +891,7 @@ function bindControls() {
       updateValueDisplays();
       scheduleRebuild();
       flushRebuild();
-      cameraNav.setView('iso');
+      cameraNav.setView('iso', { animate: false });
     });
   }
   // A nozzle choice fills in its suggested clearance, which stays editable
