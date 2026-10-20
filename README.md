@@ -97,8 +97,9 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
   (52 mm modules) or Multiboard bins (25 mm grid), with grid units sized to
   the system's grid (see [Drawer systems](#drawer-systems))
 - Optional end bin: a support wedge that fills the space at the end of a row,
-  sized to match the bin and its offset, hollow by default (a sealed cavity
-  with the bin's wall thickness, so the slicer adds no infill inside)
+  sized to match the bin and its offset, hollow above a solid base by
+  default (a sealed cavity with the bin's wall thickness, so the slicer adds
+  no infill inside), or solid, or fully hollow down into the feet
 - Vertical mounting: the same bin turned to hang on a wall, base to the wall
   and slant rising, for one of seven wall systems, printing without supports
   (see [Vertical mounting](#vertical-mounting))

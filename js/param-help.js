@@ -149,7 +149,7 @@ export const PARAM_HELP = {
     meta: 'mm · default 0.82 · 0.40 to 2.00',
     what: 'Measured horizontally and kept the same at every height, so each printed layer has the same wall width even where the wall leans.',
     why: 'Match a whole number of your slicer\'s line widths: the default 0.82 mm is one line from a 0.8 mm nozzle, which prints fast. Thicker walls are stiffer but take twice their thickness off the inside in each direction.',
-    note: 'A hollow end bin keeps this thickness for its walls and top.',
+    note: 'A hollow end bin keeps this thickness for its walls and top (and floor, when fully hollow).',
     diagram: 'wall',
   },
 
@@ -192,11 +192,11 @@ export const PARAM_HELP = {
 
   // ── End bin ─────────────────────────────────────────────────────────────
   'end.hollow': {
-    title: 'Hollow end bin',
-    meta: 'on / off · default on',
-    what: 'Makes the end bin a thin shell: its walls, floor and slanted top are one wall thickness in every layer, and the hollow runs down into every foot. It is sealed as a shell of its own, so your slicer leaves it empty instead of filling it with infill.',
-    why: 'Keep it on to print the wedge faster with less filament. Turn it off for a solid wedge filled at your slicer\'s infill.',
-    note: 'The thin edge by the main bin stays solid. Thicker walls make the hollow wedge stiffer.',
+    title: 'End bin fill',
+    meta: 'Hollow body · Solid · Fully hollow · default Hollow body',
+    what: 'Hollow body leaves a sealed empty space above a solid base, with walls and slanted top one wall thickness in every layer; your slicer leaves it empty. Solid fills the wedge at your slicer\'s infill. Fully hollow runs the empty space down into every foot.',
+    why: 'Hollow body prints fast with little filament and keeps the base sturdy. Fully hollow saves a little more but leaves the base fragile.',
+    note: 'The thin edge by the main bin stays solid. Thicker walls make a hollow wedge stiffer.',
   },
 
   // ── Downloads ───────────────────────────────────────────────────────────

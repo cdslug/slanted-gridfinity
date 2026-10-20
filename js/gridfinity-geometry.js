@@ -761,15 +761,19 @@ export function generateWallPart({
 // its last layers stay two lines wide instead of narrowing to a knife edge
 // the slicer can only print as a line out and back.
 //
-// With `hollow`, the whole part is a thin shell around one sealed cavity:
-// walls and floor keep `wallThickness`, and so does the top cap in every
-// layer (measured across the layer, like the main bin's walls, but at least
-// MIN_CAP_MM thick vertically), so each layer prints as one even loop. The
-// cavity reaches down through the bridge slab into every foot, and under the
-// land its ceiling turns flat: it ends one line wide rather than pinching to
-// a slit. It is its own inward-facing shell, so the slicer leaves it empty
-// instead of filling the wedge with infill. Where the wedge is too low for a
-// cavity (its thin edge by the main bin) it stays solid.
+// `hollow` (END_BIN_HOLLOW) leaves a sealed cavity inside:
+//   body   above a solid base: the cavity's floor is the bridge slab
+//   solid  no cavity; the slicer fills the wedge with infill
+//   full   the whole part a thin shell, the cavity reaching down through the
+//          slab into every foot; lightest, but the base is fragile
+// Walls, and the floor in `full`, keep `wallThickness`, and so does the top
+// cap in every layer (measured across the layer, like the main bin's walls,
+// but at least MIN_CAP_MM thick vertically), so each layer prints as one
+// even loop. Under the land the cavity's ceiling turns flat: it ends one
+// line wide rather than pinching to a slit. The cavity is its own
+// inward-facing shell, so the slicer leaves it empty instead of filling it.
+// Where the wedge is too low for a cavity (its thin edge by the main bin)
+// it stays solid.
 //
 // The slant plane rises from z=0 at the main bin's base edge to z=wallH
 // at the far end of the offset.
@@ -786,6 +790,8 @@ function cutChains(ring, k, cuts) {
     return [a, ...fs.map((f) => a.map((v, d) => v + f * (b[d] - v)))];
   });
 }
+
+export const END_BIN_HOLLOW = ['body', 'solid', 'full'];
 
 // Clip a CCW 2D polygon to lo <= p[k] <= hi; stays CCW (Sutherland-Hodgman)
 function clipToSlab(poly, k, lo, hi) {
@@ -816,7 +822,7 @@ export function generateEndBin({
   cornerSegments = CORNER_SEGMENTS,
   endGridX = 2,
   endGridY = 2,
-  hollow = true,
+  hollow = 'body',
   wallThickness = 0.82,
   fitClearance = 0,
   gridMM = GRID_MM,
@@ -880,18 +886,21 @@ export function generateEndBin({
   const topMax = cuts.length ? wallH * (landStart - mainEdge) / totalOffset - zOffset : 0;
 
   // --- BASE ---
-  const hollowed = hollow && cuts.length > 0;
+  const mode = END_BIN_HOLLOW.includes(hollow) ? hollow : END_BIN_HOLLOW[0];
+  const hollowed = mode !== 'solid' && cuts.length > 0;
+  const full = hollowed && mode === 'full';
   // The top cap's vertical thickness: one wall thickness across each layer
   const capZ = Math.max(t * slope, MIN_CAP_MM);
   const cavity = hollowed ? endBinCavity({
     endOuterW, endOuterD, endCenter, cornerSegments, t, k,
+    floorZ: full ? BRIDGE_Z_BOTTOM + t : 0,
     roofZ: topMax - capZ, roofStart: landStart,
     // Coordinate along the offset where the cavity ceiling reaches height z
     coordAt: (z) => coordAtSlant(z + capZ),
   }) : null;
   if (includeBase) {
     addFeet(mesh, endGridX, endGridY, endCenter, cornerSegments, gridMM, divisions, false, fit,
-      hollowed ? { t, cavity } : null);
+      full ? { t, cavity } : null);
   }
 
   // --- SOLID WEDGE (z=0 to slant plane) ---
@@ -939,12 +948,12 @@ function addPlanarCap(mesh, ring, k, cuts, flip) {
 // The end bin's cavity, above the feet: the inner outline (the outer one `t`
 // in) clipped along the offset (axis `k`) to start at `lo`, where the ceiling
 // stands MIN_CAVITY_MM above the floor. From `roofStart` on, the ceiling is
-// flat at `roofZ`. The floor is `t` above the slab's underside; the feet's
-// chimneys add their openings to `holes`. Null when there's no room.
-function endBinCavity({ endOuterW, endOuterD, endCenter, cornerSegments, t, k, roofZ, roofStart, coordAt }) {
+// flat at `roofZ`. The floor is at `floorZ`: the slab's top, or `t` above its
+// underside when the feet are hollow too, whose chimneys then add their
+// openings to `holes`. Null when there's no room.
+function endBinCavity({ endOuterW, endOuterD, endCenter, cornerSegments, t, k, floorZ, roofZ, roofStart, coordAt }) {
   const innerW = endOuterW - 2 * t;
   const innerD = endOuterD - 2 * t;
-  const floorZ = BRIDGE_Z_BOTTOM + t;
   if (innerW <= 0 || innerD <= 0 || roofZ - floorZ <= MIN_CAVITY_MM) return null;
   const halfAngle = Math.PI / (4 * cornerSegments);
   const innerR = Math.max(0.01, BASE_CORNER_RADIUS - t / Math.cos(halfAngle));

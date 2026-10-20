@@ -266,9 +266,16 @@
         <!-- End bin: drawer bins only -->
         <div class="control-section full-only" id="end-bin-section">
           <h3>End bin</h3>
-          <div class="checkbox-group">
-            <input type="checkbox" id="end-bin-hollow" checked>
-            <label for="end-bin-hollow" data-help="end.hollow">Hollow end bin</label>
+          <div class="param-row">
+            <div class="param-text">
+              <label for="end-bin-hollow" data-help="end.hollow" data-help-click>Fill</label>
+              <div class="value-display" id="end-bin-hollow-val"></div>
+            </div>
+            <select id="end-bin-hollow">
+              <option value="body" selected>Hollow body</option>
+              <option value="solid">Solid</option>
+              <option value="full">Fully hollow</option>
+            </select>
           </div>
         </div>
 

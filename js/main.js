@@ -17,6 +17,7 @@ import {
   generateWallPart,
   GRID_MM, HEIGHT_UNIT_MM, TOLERANCE_MM,
   interiorHeightMM, footCount, DRAWER_SYSTEMS, DEFAULT_DRAWER_SYSTEM, compartmentLayout, DIVIDER_WALLS,
+  END_BIN_HOLLOW,
 } from './gridfinity-geometry.js';
 import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod, wallSpacing } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
@@ -277,7 +278,7 @@ function updateBinMesh() {
     wallThickness, orientation, wallSystem, mountMethod, endBinHollow,
     compartmentsX: _cx, compartmentsY: _cy, dividerWalls: _dw, loopGap: _lg, ui: _ui, ...rest
   } = params;
-  const endParams = { ...rest, hollow: endBinHollow, ...(endBinHollow ? { wallThickness } : {}) };
+  const endParams = { ...rest, hollow: endBinHollow, ...(endBinHollow !== 'solid' ? { wallThickness } : {}) };
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -489,6 +490,11 @@ function readSizeUnit() {
 function readDividerWalls() {
   const v = document.getElementById('divider-walls').value;
   return DIVIDER_WALLS.includes(v) ? v : DIVIDER_WALLS[0];
+}
+
+function readEndBinHollow() {
+  const v = document.getElementById('end-bin-hollow').value;
+  return END_BIN_HOLLOW.includes(v) ? v : END_BIN_HOLLOW[0];
 }
 
 function readOffsetMode() {
@@ -709,7 +715,7 @@ function readParams() {
     wallSystem: readWallSystem(),
     mountMethod: readMountMethod(),
     fitClearance: readNumber('fit-clearance', 0),
-    endBinHollow: document.getElementById('end-bin-hollow').checked,
+    endBinHollow: readEndBinHollow(),
     // Along the bin's X and Y as the page shows them (across and up on a wall)
     compartmentsX: readNumber('compartments-x', 1, parseInt),
     compartmentsY: readNumber('compartments-y', 1, parseInt),
@@ -1113,6 +1119,11 @@ function updateValueDisplays() {
   setText('offset-angle-val', ui.slantCapped
     ? `° ${from}; capped at ${params.offsetMM.toFixed(0)}mm offset, ${deg.toFixed(1)}°`
     : `° ${from}, ${params.offsetMM.toFixed(0)}mm offset`);
+  setText('end-bin-hollow-val', {
+    body: 'empty above a solid base',
+    solid: 'filled at your infill',
+    full: 'empty into the feet; fragile base',
+  }[params.endBinHollow]);
 
   // Max pen length: 3D diagonal from one bottom interior corner to the
   // opposite top interior corner.  Uses interior dimensions (innerW/innerD)
