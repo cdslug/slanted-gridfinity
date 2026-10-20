@@ -74,6 +74,25 @@ const clampFit = (c) => (Number.isFinite(c) ? Math.min(FIT_CLEARANCE_MAX, Math.m
 const footInset = (inset, fit) => Math.max(0, inset + fit);
 
 // ---------------------------------------------------------------------------
+// Drawer systems: what a floor bin stands on, and the grid its units follow.
+// `feet` gives it Gridfinity feet (otherwise the flat floor slab); `spacing`
+// is the grid pitch in mm, or absent to use the Unit size setting. Bins are
+// units x spacing less TOLERANCE_MM, as on a Gridfinity baseplate.
+//   Sortimo  inset boxes for L-BOXX and i-BOXX cases: 52 mm modules (1x1 is
+//            52 x 52, 1x2 is 52 x 104)
+//   Multiboard  community drawer bins and containers on Multiboard's 25 mm grid
+// ---------------------------------------------------------------------------
+
+export const DRAWER_SYSTEMS = {
+  gridfinity: { label: 'Gridfinity', feet: true },
+  flat:       { label: 'Flat bottom', feet: false },
+  sortimo:    { label: 'Sortimo inset box', feet: false, spacing: 52 },
+  multiboard: { label: 'Multiboard bin', feet: false, spacing: 25 },
+};
+
+export const DEFAULT_DRAWER_SYSTEM = 'gridfinity';
+
+// ---------------------------------------------------------------------------
 // Dimension helpers
 // ---------------------------------------------------------------------------
 
@@ -90,6 +109,97 @@ export function interiorHeightMM(hUnits) {
 export function interiorWidthMM(units, wallT, gridMM = GRID_MM) {
   return binOuterMM(units, gridMM) - 2 * wallT;
 }
+
+// ---------------------------------------------------------------------------
+// Compartments: the bin split into nx x ny equal cells by walls along both
+// axes; 1 x 1 is the plain bin. How the cells are walled (DIVIDER_WALLS):
+//   loops   each cell is one ring, one wall thick; the rings make the bin's
+//           outside too, `gap` apart, on the shared floor. A slicer printing
+//           one line per wall draws one unbroken loop per cell. At gap 0 they
+//           touch: an outer wall of one thickness, dividers of two.
+//   double  the same rings inside an outer wall ring of their own, `gap`
+//           apart; at gap 0 a solid wall two thicknesses wide everywhere.
+//   single  dividers one wall thickness, joined to the outer wall.
+// Slicers close gaps under ~0.1 mm (the slice closing radius), so a smaller
+// gap prints as touching loops.
+// ---------------------------------------------------------------------------
+
+export const DIVIDER_WALLS = ['loops', 'double', 'single'];
+
+export const COMPARTMENTS_MAX = 10;
+export const LOOP_GAP_MAX = 0.5;
+const MIN_COMPARTMENT_MM = 5;   // fewer cells along an axis rather than narrower
+
+// Cell counts, wall widths and the cell size inside an outerW x outerD bin.
+// Counts drop until each cell is at least MIN_COMPARTMENT_MM across.
+// `wall` and `divider` run from the bin's outside to a cell's inside and
+// between cells' insides, gap included; `gap` is 0 for single dividers and
+// an undivided bin.
+export function compartmentLayout(outerW, outerD, t, nx = 1, ny = 1, mode = 'loops', gap = 0) {
+  const count = (n) => Math.min(COMPARTMENTS_MAX, Math.max(1, Math.floor(Number.isFinite(n) ? n : 1)));
+  const want = [count(nx), count(ny)];
+  if (!DIVIDER_WALLS.includes(mode)) mode = 'loops';
+  const g = mode !== 'single' && Number.isFinite(gap) ? Math.min(LOOP_GAP_MAX, Math.max(0, gap)) : 0;
+  let [cx, cy] = want;
+  for (;;) {
+    const split = cx > 1 || cy > 1;
+    const wall = split && mode === 'double' ? 2 * t + g : t;
+    const divider = mode === 'single' ? t : 2 * t + g;
+    const cellW = (outerW - 2 * wall - (cx - 1) * divider) / cx;
+    const cellD = (outerD - 2 * wall - (cy - 1) * divider) / cy;
+    const shrinkX = cx > 1 && cellW < MIN_COMPARTMENT_MM;
+    const shrinkY = cy > 1 && cellD < MIN_COMPARTMENT_MM;
+    if (!shrinkX && !shrinkY) {
+      return { nx: cx, ny: cy, mode, wall, divider, gap: split ? g : 0, cellW, cellD, capped: cx < want[0] || cy < want[1] };
+    }
+    if (shrinkX) cx--;
+    if (shrinkY) cy--;
+  }
+}
+
+// Each cell's rectangle, centred on the bin at the origin
+function compartmentRects({ nx, ny, wall, divider, cellW, cellD }, outerW, outerD) {
+  const rects = [];
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < ny; j++) {
+      const x0 = -outerW / 2 + wall + i * (cellW + divider);
+      const y0 = -outerD / 2 + wall + j * (cellD + divider);
+      rects.push({ x0, y0, x1: x0 + cellW, y1: y0 + cellD, i, j });
+    }
+  }
+  return rects;
+}
+
+// A cell's outline, CCW from its +X -Y corner: rounded like the bin's inner
+// wall where it meets the bin's corner, square where dividers meet. `grow`
+// widens it on every side, for the outside of a cell's own ring.
+function compartmentOutline(rect, { nx, ny, wall }, cornerSegments, grow = 0) {
+  const { i, j } = rect;
+  const x0 = rect.x0 - grow, y0 = rect.y0 - grow, x1 = rect.x1 + grow, y1 = rect.y1 + grow;
+  const halfAngle = Math.PI / (4 * cornerSegments);
+  let R = Math.min(BASE_CORNER_RADIUS - (wall - grow) / Math.cos(halfAngle), (x1 - x0) / 2, (y1 - y0) / 2);
+  if (R < 0.01) R = 0;
+  const left = i === 0, right = i === nx - 1, bottom = j === 0, top = j === ny - 1;
+  const corners = [
+    { r: right && bottom ? R : 0, sx: -1, sy: 1, x: x1, y: y0, a0: -Math.PI / 2 },
+    { r: right && top ? R : 0, sx: -1, sy: -1, x: x1, y: y1, a0: 0 },
+    { r: left && top ? R : 0, sx: 1, sy: -1, x: x0, y: y1, a0: Math.PI / 2 },
+    { r: left && bottom ? R : 0, sx: 1, sy: 1, x: x0, y: y0, a0: Math.PI },
+  ];
+  const pts = [];
+  for (const { r, sx, sy, x, y, a0 } of corners) {
+    if (r === 0) { pts.push([x, y]); continue; }
+    const ox = x + sx * r, oy = y + sy * r;
+    for (let k = 0; k <= cornerSegments; k++) {
+      const a = a0 + (k / cornerSegments) * (Math.PI / 2);
+      pts.push([ox + r * Math.cos(a), oy + r * Math.sin(a)]);
+    }
+  }
+  return pts;
+}
+
+const holeInRect = (hole, { x0, y0, x1, y1 }) =>
+  hole.every(([x, y]) => x > x0 + 1e-6 && x < x1 - 1e-6 && y > y0 + 1e-6 && y < y1 - 1e-6);
 
 // ---------------------------------------------------------------------------
 // Mesh builder — writes triangles straight into a growable Float32Array
@@ -340,6 +450,10 @@ export function generateSlantedBin({
   cornerSegments = CORNER_SEGMENTS,
   gridMM = GRID_MM,
   divisions = 1,
+  compartmentsX = 1,
+  compartmentsY = 1,
+  dividerWalls = 'loops',
+  loopGap = 0,
 } = {}) {
   const mesh = new MeshBuilder();
   const fit = clampFit(fitClearance);
@@ -357,6 +471,7 @@ export function generateSlantedBin({
     if (!WALL_SYSTEMS[wallSystem]) wallSystem = DEFAULT_WALL_SYSTEM;
     [gridX, gridY] = [gridY, gridX];
     [pitchX, pitchY] = [pitchY, pitchX];
+    [compartmentsX, compartmentsY] = [compartmentsY, compartmentsX];
     offsetAxis = 'x';
     includeBase = wallSystem === 'gridfinity';
   }
@@ -399,11 +514,25 @@ export function generateSlantedBin({
     : null;
   const floorHoles = (plan?.holes ?? []).map(pts => pts.map(([u, v]) => [v, -u]));
 
+  // Compartments, fewer along an axis whose dividers would cross a hole
+  // the mount cuts through the floor
+  const holesFit = (l) => floorHoles.every(h => compartmentRects(l, outerW, outerD).some(r => holeInRect(h, r)));
+  const layoutFor = (nx, ny) => compartmentLayout(outerW, outerD, t, nx, ny, dividerWalls, loopGap);
+  const wanted = layoutFor(compartmentsX, compartmentsY);
+  const layout = [[wanted.nx, wanted.ny], [wanted.nx, 1], [1, wanted.ny], [1, 1]]
+    .map(([nx, ny]) => layoutFor(nx, ny))
+    .find(holesFit) ?? layoutFor(1, 1);
+  const divided = layout.nx * layout.ny > 1;
+
+  const flat = (ring) => ring.map(([x, y]) => [x, y]);
+  const at = (x, y, z) => [x, y, z];
+  const lift = (pts, z) => { const [ox, oy] = getOffset(z); return pts.map(([x, y]) => [x + ox, y + oy, z]); };
+
   // One closed shell: floor slab (z=-2.25 to 0), outer wall, rim, inner
-  // wall, and the interior floor inside the inner wall at z=0
+  // wall, and the interior floor inside the inner wall at z=0 (with
+  // compartments: an inner wall and floor in each). Loops apart are the
+  // exception: the slab alone, and a shell per cell's ring standing on it.
   if (floorHoles.length) {
-    const flat = (ring) => ring.map(([x, y]) => [x, y]);
-    const at = (x, y, z) => [x, y, z];
     const bottom = makeRing(BRIDGE_Z_BOTTOM, outerW, outerD, BASE_CORNER_RADIUS, [0, 0], cornerSegments);
     writeCap(mesh, flat(bottom), floorHoles, at, BRIDGE_Z_BOTTOM, false);
     addStrip(mesh, bottom, wallOuterBottom);
@@ -411,14 +540,62 @@ export function generateSlantedBin({
   } else {
     addBridge(mesh, outerW, outerD, [0, 0], cornerSegments, wallOuterBottom);
   }
-  addStrip(mesh, wallOuterBottom, wallOuterTop);
-  addRingFace(mesh, wallOuterTop, wallInnerTop);
-  addStrip(mesh, wallInnerBottom, wallInnerTop, true);
-  if (floorHoles.length) {
-    writeCap(mesh, wallInnerBottom.map(([x, y]) => [x, y]), floorHoles, (x, y, z) => [x, y, z], 0, true);
+  const separate = divided && layout.gap > 0 && layout.mode === 'loops';
+  if (!separate) addStrip(mesh, wallOuterBottom, wallOuterTop);
+  if (separate) {
+    // The slab's top is the floor everywhere; each ring touches it, and
+    // slicers merge touching shells (as with the feet)
+    writeCap(mesh, flat(wallOuterBottom), floorHoles, at, 0, true);
+    for (const r of compartmentRects(layout, outerW, outerD)) {
+      const outside = compartmentOutline(r, layout, cornerSegments, t);
+      const inside = compartmentOutline(r, layout, cornerSegments);
+      const outsideTop = lift(outside, wallH), insideTop = lift(inside, wallH);
+      addStrip(mesh, lift(outside, 0), outsideTop);
+      writeCap(mesh, flat(outsideTop), [flat(insideTop)], at, wallH, true);
+      addStrip(mesh, lift(inside, 0), insideTop, true);
+      writeCap(mesh, outside, [inside], at, 0, false);
+    }
+  } else if (divided) {
+    // Every cell gets its own inner wall and floor
+    const rects = compartmentRects(layout, outerW, outerD);
+    const outlines = rects.map(r => compartmentOutline(r, layout, cornerSegments));
+    const tops = outlines.map(o => lift(o, wallH));
+    if (layout.gap > 0) {
+      // Double, apart: the outer wall is its own ring, and each cell's ring stands
+      // on the floor inside it, with floor showing in the gaps between
+      addRingFace(mesh, wallOuterTop, wallInnerTop);
+      addStrip(mesh, wallInnerBottom, wallInnerTop, true);
+      const rings = rects.map(r => compartmentOutline(r, layout, cornerSegments, t));
+      writeCap(mesh, flat(wallInnerBottom), rings, at, 0, true);
+      rings.forEach((ring, k) => {
+        const ringTop = lift(ring, wallH);
+        addStrip(mesh, lift(ring, 0), ringTop);
+        writeCap(mesh, flat(ringTop), [flat(tops[k])], at, wallH, true);
+      });
+    } else {
+      // Touching: the rim is the outer outline with every cell's opening cut out
+      writeCap(mesh, flat(wallOuterTop), tops.map(flat), at, wallH, true);
+    }
+    outlines.forEach((o, k) => {
+      const bottom = lift(o, 0);
+      addStrip(mesh, bottom, tops[k], true);
+      const own = floorHoles.filter(h => holeInRect(h, rects[k]));
+      if (own.length) {
+        writeCap(mesh, o, own, at, 0, true);
+      } else {
+        const { x0, y0, x1, y1 } = rects[k];
+        addFan(mesh, bottom, [(x0 + x1) / 2, (y0 + y1) / 2, 0], false);
+      }
+    });
   } else {
-    const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
-    addFan(mesh, wallInnerBottom, floorCenter, false);
+    addRingFace(mesh, wallOuterTop, wallInnerTop);
+    addStrip(mesh, wallInnerBottom, wallInnerTop, true);
+    if (floorHoles.length) {
+      writeCap(mesh, wallInnerBottom.map(([x, y]) => [x, y]), floorHoles, (x, y, z) => [x, y, z], 0, true);
+    } else {
+      const floorCenter = [getOffset(0)[0], getOffset(0)[1], 0];
+      addFan(mesh, wallInnerBottom, floorCenter, false);
+    }
   }
 
   // --- Place on the build plate (or the wall) & dimensions ---
@@ -445,8 +622,9 @@ export function generateSlantedBin({
   const slantAngleDeg = wallH > 0
     ? Math.atan2(totalOffset, wallH) * (180 / Math.PI) : 0;
   const slantDiagonal = Math.sqrt(totalOffset * totalOffset + wallH * wallH);
-  const spanOffset = totalOffset + (offsetAxis === 'x' ? innerW : innerD);
-  const spanCross = offsetAxis === 'x' ? innerD : innerW;
+  // The longest item in one compartment (the whole interior when undivided)
+  const spanOffset = totalOffset + (offsetAxis === 'x' ? layout.cellW : layout.cellD);
+  const spanCross = offsetAxis === 'x' ? layout.cellD : layout.cellW;
   const maxPenLength = Math.sqrt(
     spanOffset * spanOffset + spanCross * spanCross + wallH * wallH
   );
@@ -456,8 +634,14 @@ export function generateSlantedBin({
     dimensions: {
       outerWidth: outerW,
       outerDepth: outerD,
-      innerWidth: innerW,
-      innerDepth: innerD,
+      innerWidth: outerW - 2 * layout.wall,
+      innerDepth: outerD - 2 * layout.wall,
+      // Counts and sizes along local X and Y (turned on a wall, like the rest);
+      // `blocked` when a mount's floor holes took dividers away
+      compartments: {
+        nx: layout.nx, ny: layout.ny, width: layout.cellW, depth: layout.cellD, gap: layout.gap,
+        capped: wanted.capped, blocked: layout.nx * layout.ny < wanted.nx * wanted.ny,
+      },
       totalHeight: floorZ + wallH,
       interiorHeight: wallH,
       baseHeight: floorZ,
@@ -501,15 +685,41 @@ export function generateWallPart({
 }
 
 // ---------------------------------------------------------------------------
-// End bin generator — solid wedge that fills the gap under the slanted bin.
+// End bin generator — wedge that fills the gap under the slanted bin.
 //
-// This is a SOLID volume (not hollow). The slicer handles infill.
 // Surfaces: gridfinity base, the bridge slab under z=0, vertical outer
-// walls trimmed by the slant plane, and a solid angled top cap.
+// walls trimmed by the slant plane, and an angled top cap.
+//
+// With `hollow`, a sealed cavity sits inside it: walls and the top cap keep
+// `wallThickness` (the top measured square to the slant) and the floor is
+// the bridge slab. The cavity is its own inward-facing shell, so the slicer
+// leaves it empty instead of filling the wedge with infill. Where the wedge
+// is too low for a cavity (its thin edge by the main bin) it stays solid.
 //
 // The slant plane rises from z=0 at the main bin's base edge to z=wallH
 // at the far end of the offset.
 // ---------------------------------------------------------------------------
+
+// The cavity is left out where it would be lower than this
+const MIN_CAVITY_MM = 1;
+
+// Clip a CCW 2D polygon to lo <= p[k] <= hi; stays CCW (Sutherland-Hodgman)
+function clipToSlab(poly, k, lo, hi) {
+  const clip = (pts, keep, edge) => {
+    const out = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ina = keep(a[k]), inb = keep(b[k]);
+      if (ina) out.push(a);
+      if (ina !== inb) {
+        const f = (edge - a[k]) / (b[k] - a[k]);
+        out.push([a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]);
+      }
+    }
+    return out;
+  };
+  return clip(clip(poly, (c) => c >= lo, lo), (c) => c <= hi, hi);
+}
 
 export function generateEndBin({
   gridX = 2,
@@ -522,6 +732,8 @@ export function generateEndBin({
   cornerSegments = CORNER_SEGMENTS,
   endGridX = 2,
   endGridY = 2,
+  hollow = true,
+  wallThickness = 0.82,
   fitClearance = 0,
   gridMM = GRID_MM,
   divisions = 1,
@@ -599,5 +811,37 @@ export function generateEndBin({
   const topCenter = [cx / n, cy / n, cz / n];
   addFan(mesh, outerTop, topCenter, false);
 
+  if (hollow && totalOffset > 0) addEndBinCavity(mesh, {
+    endOuterW, endOuterD, endCenter, wallH, cornerSegments, t: wallThickness,
+    k: offsetAxis === 'x' ? 0 : 1,
+    // The cavity ceiling: the slant plane, `t` lower measured square to it
+    ceilingZ: (x, y) => slantZ(x, y) - wallThickness * slantLength / totalOffset,
+    // Coordinate along the offset where that ceiling reaches height z
+    coordAt: (z) => mainEdge + (z + zOffset + wallThickness * slantLength / totalOffset) * totalOffset / wallH,
+  });
+
   return mesh.finish(plateShift(includeBase));
+}
+
+// The end bin's cavity: the inner outline (the outer one `t` in) clipped to
+// where the ceiling stands at least MIN_CAVITY_MM above the floor (z = 0) and
+// stays a plane (below the flat top at wallH - t). Faces point into it.
+function addEndBinCavity(mesh, { endOuterW, endOuterD, endCenter, wallH, cornerSegments, t, k, ceilingZ, coordAt }) {
+  const innerW = endOuterW - 2 * t;
+  const innerD = endOuterD - 2 * t;
+  if (innerW <= 0 || innerD <= 0 || wallH - t <= MIN_CAVITY_MM) return;
+  const halfAngle = Math.PI / (4 * cornerSegments);
+  const innerR = Math.max(0.01, BASE_CORNER_RADIUS - t / Math.cos(halfAngle));
+  const outline = clipToSlab(
+    roundedRectPoints(innerW, innerD, innerR, cornerSegments, endCenter[0], endCenter[1]),
+    k, coordAt(MIN_CAVITY_MM), coordAt(wallH - t),
+  );
+  if (outline.length < 3) return;
+
+  const floor = outline.map(([x, y]) => [x, y, 0]);
+  const ceiling = outline.map(([x, y]) => [x, y, ceilingZ(x, y)]);
+  const centre = (ring) => ring.reduce((c, p) => [c[0] + p[0] / ring.length, c[1] + p[1] / ring.length, c[2] + p[2] / ring.length], [0, 0, 0]);
+  addFan(mesh, floor, centre(floor), false);
+  addStrip(mesh, floor, ceiling, true);
+  addFan(mesh, ceiling, centre(ceiling), true);
 }

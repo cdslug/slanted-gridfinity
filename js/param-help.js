@@ -39,13 +39,22 @@ import { drawDiagram, DIAGRAMS } from './help-diagrams.js';
 // ---------------------------------------------------------------------------
 
 export const PARAM_HELP = {
+  // ── Settings mode ───────────────────────────────────────────────────────
+  'view.mode': {
+    title: 'Settings',
+    meta: 'Core · Full · default Core',
+    what: 'Core shows the essentials: orientation, bin size, height (depth on a wall) and the slant, as a grid offset in a drawer or in degrees on a wall. Full adds the other way to set the slant, the drawer and wall systems, grid options, walls, compartments, print fit and the end bin.',
+    why: 'Stay in Core for a standard bin: Gridfinity in a drawer, openGrid on a wall. Switch to Full to change anything else.',
+    note: 'Hidden settings keep their values, so a change made in Full still applies in Core; a slant set the other way converts to the nearest equivalent. Your choice is remembered in this browser.',
+  },
+
   // ── Grid size ────────────────────────────────────────────────────────────
   'grid.unit': {
     title: 'Unit size',
     meta: 'mm per grid unit · default 42 (standard) · 20 to 100',
     what: 'The pitch a grid unit stands for. A bin is this many millimetres per unit, less 0.5 mm so neighbouring bins fit side by side. The feet and the preview grid follow it.',
     why: 'Leave it at 42 mm for standard Gridfinity. Change it only for a baseplate with a different pitch.',
-    note: 'On a wall board with its own spacing (openGrid 28, Multiboard 25, SKÅDIS 40, HSW 40.9 across by 23.6 up, GOEWS 42 across by 36.4 up) the unit is that spacing and this setting hides.',
+    note: 'A system with its own grid sets the unit and this setting hides: in a drawer Sortimo 52 and Multiboard 25; on a wall openGrid 28, Multiboard 25, SKÅDIS 40, HSW 40.9 across by 23.6 up, GOEWS 42 across by 36.4 up.',
   },
   'grid.divisions': {
     title: 'Divisions',
@@ -65,7 +74,7 @@ export const PARAM_HELP = {
     title: 'Bin size',
     meta: 'grid units: 1 to 20 (0.5 with Half) · mm: 10 to 840 · default 2 × 2',
     what: 'The footprint of the bin at its base. In grid units a 2 × 2 bin at 42 mm is 83.5 mm square outside; in a length it is the outside size.',
-    why: 'Size it to what you store. The top shifts by the offset, so along the offset axis the bin and its end bin take this size plus the offset in drawer length.',
+    why: 'Size it to what you store. The top shifts by the offset, so along X the bin and its end bin take this size plus the offset in drawer length.',
     note: 'Mounted vertically, X is the width across the wall and Y the height up it.',
   },
 
@@ -74,8 +83,16 @@ export const PARAM_HELP = {
     title: 'Orientation',
     meta: 'Horizontal · Vertical · default Horizontal',
     what: 'Horizontal stands the bin in a drawer on Gridfinity feet. Vertical turns it to hang on a wall: the base faces the wall, the opening faces you and the slant rises up the wall.',
-    why: 'Choose Vertical to keep pens on a wall board. The offset axis, base and end bin don\'t apply there, so they hide.',
+    why: 'Choose Vertical to keep pens on a wall board. The drawer system doesn\'t apply there, so it hides, and there is no end bin.',
     note: 'The STL keeps this orientation; turn it in your slicer for printing.',
+  },
+  'mount.drawer': {
+    title: 'Drawer system',
+    meta: '4 systems · default Gridfinity',
+    what: 'Sets what the bin stands on and the grid its units follow. Gridfinity adds 7 mm stepped feet for a baseplate. Flat bottom, Sortimo (52 mm inset-box modules) and Multiboard (25 mm bins) sit on a flat 2.25 mm floor.',
+    why: 'Match the drawer or case you fill, so the bin lines up with what is already in it. Flat bottom is 4.75 mm shorter than Gridfinity.',
+    note: 'Gridfinity and Flat bottom follow the Unit size; the others use their own grid.',
+    diagram: 'base',
   },
   'mount.system': {
     title: 'Wall system',
@@ -98,37 +115,32 @@ export const PARAM_HELP = {
     meta: '7 mm each · default 12 · 1 to 100',
     what: 'The bin\'s height, measured straight up. The inside is 7 mm less than the height: 77 mm at the default 12.',
     why: 'Set it to what the drawer leaves room for. A taller bin holds longer items at a steeper angle; the max pen length under the label shows the result.',
+    note: 'On a wall this is Depth units: how far the bin reaches out from the board.',
     diagram: 'height',
   },
 
   // ── Slant offset ────────────────────────────────────────────────────────
   'offset.mode': {
     title: 'Set by',
-    meta: 'Grid · Angle · default Grid',
+    meta: 'Grid · Angle · default Grid in a drawer, Angle on a wall',
     what: 'Grid shifts the top by whole or half grid units, so the opening lands on the grid. Angle leans the walls by the degrees you give, whatever offset that makes.',
     why: 'Use Grid to tile slanted bins with their end bins. Use Angle when the lean matters more, such as for a tool that rests at a set angle.',
-    note: 'Switching carries the current slant over.',
+    note: 'Switching carries the current slant over. Each orientation keeps its own slant. Core uses Grid in a drawer and Angle on a wall.',
   },
   'offset.units': {
-    title: 'Offset',
+    title: 'Slant offset',
     meta: 'grid units · default 2 · 0 to 20 in steps of 0.5',
-    what: 'How far the top of the bin shifts sideways from its base. The walls lean by that much over the bin\'s height.',
+    what: 'How far the top of the bin shifts along X from its base. The walls lean by that much over the bin\'s height.',
     why: 'A larger offset lays long items at a lower angle, so they fit a shallow drawer. It also needs more drawer length, since the end bin under the overhang grows with it. At 0 the bin is straight and has no end bin.',
     note: 'On a wall the units are the board\'s spacing up it.',
     diagram: 'offset',
   },
   'offset.angle': {
-    title: 'Angle',
+    title: 'Slant degrees',
     meta: 'degrees · default 30 · 0 to 90',
     what: 'How far the walls lean from straight: from vertical in a drawer, from level on a wall. The offset is the inside height times its tangent.',
     why: 'A steeper angle lays items lower but needs more length and thins the walls across their lean. The offset stops at 20 grid units, so near 90° the line below shows the angle you get.',
     diagram: 'offset',
-  },
-  'offset.axis': {
-    title: 'Offset axis',
-    meta: 'X · Y · default X',
-    what: 'The direction the top shifts in, along the bin\'s X or Y size. The end bin goes on that side.',
-    why: 'Pick the direction where the drawer has room for the overhang and the end bin.',
   },
 
   // ── Walls ───────────────────────────────────────────────────────────────
@@ -137,7 +149,30 @@ export const PARAM_HELP = {
     meta: 'mm · default 0.82 · 0.40 to 2.00',
     what: 'Measured horizontally and kept the same at every height, so each printed layer has the same wall width even where the wall leans.',
     why: 'Match a whole number of your slicer\'s line widths: the default 0.82 mm is one line from a 0.8 mm nozzle, which prints fast. Thicker walls are stiffer but take twice their thickness off the inside in each direction.',
+    note: 'A hollow end bin keeps this thickness for its walls and top.',
     diagram: 'wall',
+  },
+
+  // ── Compartments ────────────────────────────────────────────────────────
+  'inside.compartments': {
+    title: 'Compartments',
+    meta: 'count along X × Y · default 1 × 1 · 1 to 10 each',
+    what: 'Splits the inside into equal cells with walls along both axes. The walls lean with the slant, so every layer keeps the same wall width. At 1 × 1 the bin is one open space.',
+    why: 'Divide it to keep items apart or upright. Each divider takes width off the cells, and Max pen length then measures one cell.',
+    note: 'Cells stay at least 5 mm across, so a small bin gets fewer. On a wall, X is across and Y up, and a mount\'s holes through the floor never fall under a divider.',
+  },
+  'inside.walls': {
+    title: 'Walls',
+    meta: 'Loop each · Loops + outer · Shared · default Loop each',
+    what: 'Loop each makes every compartment its own ring, one wall thick, forming the bin\'s outside too. Loops + outer adds a ring around them. Shared joins one-thickness dividers to the outer wall.',
+    why: 'Both loop choices let a slicer printing one line per wall draw an unbroken loop per compartment. Shared keeps the most room but leaves lines to join at each T.',
+  },
+  'inside.gap': {
+    title: 'Loop gap',
+    meta: 'mm · default 0.15 · 0 to 0.50 in steps of 0.01 · not with Shared',
+    what: 'Space between the rings, and with Loops + outer between them and the outer ring. Above 0 each ring is separate, joined only by the floor, so the slicer prints it as one line.',
+    why: 'Raise it if the slicer still merges loops; lower it so the lines fuse. At 0 the rings merge into two-line dividers.',
+    note: 'Slicers close gaps under about 0.1 mm (a slice closing radius of 0.049 mm), so a smaller gap prints as if it were 0.',
   },
 
   // ── Print fit ───────────────────────────────────────────────────────────
@@ -155,23 +190,13 @@ export const PARAM_HELP = {
     note: 'French cleat hooks mate with wood, so they ignore it.',
   },
 
-  // ── Base ────────────────────────────────────────────────────────────────
-  'base.include': {
-    title: 'Include gridfinity base profile',
-    meta: 'on / off · default on',
-    what: 'Adds the stepped feet, 7 mm tall, that lock into a Gridfinity baseplate, under both the bin and the end bin.',
-    why: 'Turn it off for a drawer with no baseplate. The bin then sits on a flat 2.25 mm floor and is 4.75 mm shorter.',
-    diagram: 'base',
-  },
-
   // ── End bin ─────────────────────────────────────────────────────────────
-  'end.size': {
-    title: 'End bin size (X / Y units)',
-    meta: 'grid units · default 2 × 2 · 1 to 20 (0.5 to 20 with Half)',
-    what: 'The footprint of the end bin: a solid wedge that fills the space under the overhang, 0.5 mm clear of the leaning wall.',
-    why: 'Changing the offset sets its length along the offset axis to the offset, rounded down, so you mostly set the other axis. Matching the bin keeps the pair a rectangle.',
-    note: 'There is no end bin while the offset is 0.',
-    diagram: 'endBin',
+  'end.hollow': {
+    title: 'Hollow end bin',
+    meta: 'on / off · default on',
+    what: 'Leaves a sealed empty space inside the end bin. Its walls and slanted top keep the bin\'s wall thickness and the 2.25 mm floor stays. The cavity is its own shell, so your slicer leaves it empty instead of filling it with infill.',
+    why: 'Keep it on to print the wedge faster with less filament. Turn it off for a solid wedge filled at your slicer\'s infill.',
+    note: 'The thin edge by the main bin stays solid. Thicker walls make the hollow wedge stiffer.',
   },
 
   // ── Downloads ───────────────────────────────────────────────────────────
@@ -179,13 +204,14 @@ export const PARAM_HELP = {
     title: 'Slanted bin',
     meta: 'on / off · default on',
     what: 'Export STL saves the slanted bin as its own file, ending _bin.stl.',
-    why: 'Turn it off to export only the end bin, after changing its size, say.',
+    why: 'Turn it off to export only the end bin, after changing the offset, say.',
   },
   'download.endBin': {
     title: 'End bin (support wedge)',
     meta: 'on / off · default on · unavailable at offset 0',
-    what: 'Export STL saves the end bin as a separate file, ending _support-wedge.stl.',
-    why: 'Turn it off when something else already fills the space under the overhang.',
+    what: 'Export STL saves the end bin as a separate file, ending _support-wedge.stl: a wedge that fills the space under the overhang, 0.5 mm clear of the leaning wall.',
+    why: 'It matches the bin\'s Y size and spans the offset in X, rounded down. Turn it off when something else already fills the space under the overhang.',
+    diagram: 'endBin',
   },
 
   'download.part': {

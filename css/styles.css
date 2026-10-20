@@ -249,6 +249,17 @@ html, body {
   margin-bottom: 8px;
 }
 
+/* Settings mode. Core hides the full-only controls; !important beats the
+   inline display that main.js sets on rows it shows or hides. */
+.sidebar[data-mode="core"] .full-only {
+  display: none !important;
+}
+
+.mode-section {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
 .control-group {
   margin-bottom: 8px;
 }

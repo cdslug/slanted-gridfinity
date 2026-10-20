@@ -81,6 +81,10 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 
 ## Features
 
+- Two settings modes: **Core** (the default) shows only orientation, bin
+  size, height and the slant, building a Gridfinity drawer bin with its
+  slant as a grid offset, or an openGrid wall bin with its slant in degrees
+  (30° by default); **Full** shows every setting below
 - Bin size in grid units (1 to 20 on each axis) or as an outside size in
   mm, cm or inches; height from 1 to 100 units
 - Custom grid unit size (42mm by default) for non-standard baseplates
@@ -89,12 +93,20 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 - Slant along X or Y, set by an offset in half grid units (the opening lands
   on the grid) or by an angle from 0 to 90 degrees
 - Adjustable wall thickness and corner resolution
-- Optional Gridfinity base profile
-- Optional end bin: a support wedge that fills the space at the end of a row
+- Drawer system picker: Gridfinity feet, a flat bottom, Sortimo inset boxes
+  (52 mm modules) or Multiboard bins (25 mm grid), with grid units sized to
+  the system's grid (see [Drawer systems](#drawer-systems))
+- Optional end bin: a support wedge that fills the space at the end of a row,
+  sized to match the bin and its offset, hollow by default (a sealed cavity
+  with the bin's wall thickness, so the slicer adds no infill inside)
 - Vertical mounting: the same bin turned to hang on a wall, base to the wall
   and slant rising, for one of seven wall systems, printing without supports
   (see [Vertical mounting](#vertical-mounting))
-- Print fit: a clearance setting, with nozzle presets from 0.2 to 0.8 mm
+- Print fit: a clearance setting, with nozzle presets from 0.2 to 0.8 mm,
+  for drawer and wall bins alike
+- Compartments: equal cells along X and Y, divided by walls that lean with
+  the slant; by default each cell is its own ring, so it prints as one loop
+  (see [Compartments](#compartments))
 - Wireframe and cross-section views, preset camera views on keys 0–6 (F fits the model)
 - Binary STL export
 - Light and dark themes
@@ -115,6 +127,22 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
 | `vendor/three/` | three.js r162 and OrbitControls (MIT) |
 | `fonts/` | Space Grotesk and Space Mono (SIL OFL) |
 
+## Drawer systems
+
+In **Horizontal** orientation, **Drawer system** (under **Mounting**, where a
+wall bin picks its wall system) sets what the bin stands on and the grid its
+units follow. A bin is that many units less 0.5 mm, so neighbours fit side by
+side, and the end bin follows the same grid.
+
+| System | Bottom | One grid unit |
+| --- | --- | --- |
+| Gridfinity | Stepped feet, 7 mm tall, for a Gridfinity baseplate | Unit size (42 mm by default) |
+| Flat bottom | Flat 2.25 mm floor, 4.75 mm shorter | Unit size (42 mm by default) |
+| Sortimo | Flat floor, sized like Sortimo inset boxes for L-BOXX and i-BOXX cases | 52 mm (1x1 is 52 x 52, 1x2 is 52 x 104) |
+| Multiboard | Flat floor, on the 25 mm grid of Multiboard drawer bins | 25 mm |
+
+Height units stay 7 mm for every system. A 63 mm Sortimo box is 9 units.
+
 ## Vertical mounting
 
 A vertical bin is the same slanted bin turned to hang on a wall. Its base
@@ -125,8 +153,11 @@ of plain Gridfinity feet.
 
 ### Making one
 
-1. Under **Mounting**, set **Orientation** to **Vertical**. The offset axis,
-   base and end bin controls hide, since they only apply to drawer bins.
+1. Under **Mounting**, set **Orientation** to **Vertical**. In **Core**
+   settings that is all you need for an openGrid bin; skip to step 3.
+   Switch **Settings** to **Full** for the other wall systems. The drawer system
+   control hides, and there is no end bin, since those only apply to drawer
+   bins.
 2. Pick the **Wall system**. Some systems also have an **Attachment** choice
    (below); the line under each picker says what fits on this bin and what
    you need to print or buy.
@@ -134,11 +165,13 @@ of plain Gridfinity feet.
    and the second the height up it. In grid units, a unit is the board's own
    spacing (see the table below), so bins side by side land on the board's
    holes; **Unit size** shows it in place of its input. With **Size in** set
-   to mm, cm or in you give the bin's outside size instead. **Height units**
-   sets how far the bin reaches out from the wall. Under **Slant**, **Offset**
-   sets how far the opening rises in units of the board's spacing up it, or
-   switch **Set by** to **Angle** to give the lean in degrees from level.
-4. Under **Print Fit**, pick your **Nozzle**, and adjust **Fit clearance**
+   to mm, cm or in you give the bin's outside size instead. **Depth units**
+   (Height units on a drawer bin) sets how far the bin reaches out from the
+   wall. Under **Slant**, **Slant degrees** gives the lean from level, 30° by
+   default; a wall has no grid for the opening to line up with. In **Full**
+   settings, switch **Set by** to **Grid** to give a **Slant offset** in units
+   of the board's spacing up it instead.
+4. In **Full** settings, under **Print fit**, pick your **Nozzle**, and adjust **Fit clearance**
    after a test print if parts are too tight or too loose.
 5. **Export STL** saves the bin and, when the attachment uses one, the
    separate part. The download row says how many of that part to print.
@@ -211,10 +244,39 @@ pitch of their own here, so their units follow the **Unit size** setting.
 - **Gridfinity plate:** put 6 x 2 mm magnets in the feet; the bin seats in a
   magnetic baseplate screwed to the wall.
 
+### Compartments
+
+**Compartments** (in **Full** settings) splits the inside into equal cells, a count
+along X and along Y; 1 × 1 is the plain bin. Dividers across the slant lean
+with it, like the end walls, so every layer keeps the same wall width.
+
+**Walls** sets how the cells are built. With a single-line wall (0.82 mm from
+a 0.8 mm nozzle), the first two give the slicer one unbroken loop per cell
+instead of lines to join at every T:
+
+- **Loop each** (default): every cell is its own ring, one wall thick, and
+  the rings make the bin's outside, so the cells look like separate tubes
+  on a shared floor.
+- **Loops + outer**: the same rings inside an outer ring of their own, for a
+  smooth outside at the cost of more material and room.
+- **Shared**: one-thickness dividers joined to the outer wall, which keeps
+  the most room inside.
+
+**Loop gap** (0.15 mm by default) is the space between the rings. Above 0
+each ring is separate, joined only by the floor, so the slicer prints it as a
+single line and can't merge or split it. At 0 the rings merge into solid
+dividers two lines wide. Slicers close gaps under about
+0.1 mm (PrusaSlicer, Orca and Bambu's slice closing radius is 0.049 mm), so a
+smaller gap prints as if it were 0.
+
+Cells stay at least 5 mm across. On a wall, X runs across and Y up, and a
+mount's holes through the floor never land under a divider: if they would,
+that axis keeps fewer cells.
+
 ### Print fit
 
-Clearances follow each system's published fit, which assumes a 0.4 mm
-nozzle. **Fit clearance** adds room on every mating surface, in mm per side
+Both settings are under **Print fit**, in **Full** settings. Clearances follow each
+system's published fit, which assumes a 0.4 mm nozzle. **Fit clearance** adds room on every mating surface, in mm per side
 (-0.2 to 0.6): feet, pegs, hooks and hangers shrink, and slots, channels and
 holes grow. **Nozzle** fills in a starting value: -0.1, 0, +0.1 or +0.2 mm for
 0.2, 0.4, 0.6 or 0.8 mm nozzles, since wider lines print holes smaller and

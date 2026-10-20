@@ -30,16 +30,31 @@
   <div class="app">
 
     <!-- ================= Sidebar ================= -->
-    <aside class="sidebar">
+    <!-- data-mode: core shows the essentials, full every setting (main.js) -->
+    <aside class="sidebar" id="sidebar" data-mode="core">
       <div class="sidebar-header">
         <div class="sidebar-title">
-          <h1>Slanted Gridfinity</h1>
+          <h1 id="app-title">Slanted Gridfinity</h1>
           <div class="subtitle">Diagonal bin generator for constrained drawers</div>
         </div>
         <button class="btn btn-sm theme-toggle" id="theme-toggle" type="button">Dark</button>
       </div>
 
       <div class="sidebar-body">
+
+        <!-- Settings mode: Core hides the .full-only controls, which keep their values -->
+        <div class="control-section mode-section">
+          <div class="param-row">
+            <div class="param-text">
+              <label id="settings-mode-label" data-help="view.mode" data-help-click>Settings</label>
+              <div class="value-display" id="settings-mode-val"></div>
+            </div>
+            <div class="radio-group param-radios" role="radiogroup" aria-labelledby="settings-mode-label">
+              <label><input type="radio" name="settings-mode" value="core" checked> Core</label>
+              <label><input type="radio" name="settings-mode" value="full"> Full</label>
+            </div>
+          </div>
+        </div>
 
         <!-- Mounting -->
         <div class="control-section">
@@ -54,7 +69,19 @@
               <label><input type="radio" name="orientation" value="vertical"> Vertical</label>
             </div>
           </div>
-          <div class="param-row" id="wall-system-row">
+          <div class="param-row full-only" id="drawer-system-row">
+            <div class="param-text">
+              <label for="drawer-system" data-help="mount.drawer" data-help-click>Drawer system</label>
+              <div class="value-display" id="drawer-system-val"></div>
+            </div>
+            <select id="drawer-system">
+              <option value="gridfinity" selected>Gridfinity</option>
+              <option value="flat">Flat bottom</option>
+              <option value="sortimo">Sortimo</option>
+              <option value="multiboard">Multiboard</option>
+            </select>
+          </div>
+          <div class="param-row full-only" id="wall-system-row">
             <div class="param-text">
               <label for="wall-system" data-help="mount.system" data-help-click>Wall system</label>
               <div class="value-display" id="wall-system-val"></div>
@@ -69,7 +96,7 @@
               <option value="cleat">French cleat</option>
             </select>
           </div>
-          <div class="param-row" id="mount-method-row">
+          <div class="param-row full-only" id="mount-method-row">
             <div class="param-text">
               <label for="mount-method" data-help="mount.method" data-help-click>Attachment</label>
               <div class="value-display" id="mount-method-val"></div>
@@ -82,7 +109,7 @@
         <!-- Grid Size -->
         <div class="control-section">
           <h3>Grid Size</h3>
-          <div class="param-row" id="grid-unit-row">
+          <div class="param-row full-only" id="grid-unit-row">
             <div class="param-text">
               <label for="grid-unit-mm" data-help="grid.unit" data-help-click>Unit size</label>
               <div class="value-display" id="grid-unit-note">mm per grid unit</div>
@@ -91,7 +118,7 @@
             <!-- Shown instead of the input when the wall system sets the spacing -->
             <div class="param-fixed" id="grid-unit-fixed"></div>
           </div>
-          <div class="param-row">
+          <div class="param-row full-only">
             <div class="param-text">
               <label for="grid-divisions" data-help="grid.divisions" data-help-click>Divisions</label>
               <div class="value-display" id="grid-unit-val"></div>
@@ -101,7 +128,7 @@
               <option value="2">Half</option>
             </select>
           </div>
-          <div class="param-row">
+          <div class="param-row full-only">
             <div class="param-text">
               <label for="size-unit" data-help="grid.sizeUnit" data-help-click>Size in</label>
               <div class="value-display" id="size-unit-val"></div>
@@ -126,12 +153,12 @@
           </div>
         </div>
 
-        <!-- Height -->
+        <!-- Height; Depth on a wall, where it reaches out from the board -->
         <div class="control-section">
-          <h3>Height</h3>
+          <h3 id="height-heading">Height</h3>
           <div class="param-row">
             <div class="param-text">
-              <label for="height-units" data-help="height.units" data-help-click>Height units</label>
+              <label for="height-units" id="height-units-label" data-help="height.units" data-help-click>Height units</label>
               <div class="value-display" id="height-units-val"></div>
               <div class="value-display" id="diagonal-val"></div>
             </div>
@@ -142,7 +169,7 @@
         <!-- Slant / Offset -->
         <div class="control-section">
           <h3>Slant</h3>
-          <div class="param-row">
+          <div class="param-row full-only">
             <div class="param-text">
               <label id="offset-mode-label" data-help="offset.mode" data-help-click>Set by</label>
               <div class="value-display" id="offset-mode-val"></div>
@@ -154,32 +181,22 @@
           </div>
           <div class="param-row" id="offset-units-row">
             <div class="param-text">
-              <label for="offset-units" data-help="offset.units" data-help-click>Offset</label>
+              <label for="offset-units" data-help="offset.units" data-help-click>Slant offset</label>
               <div class="value-display" id="offset-units-val"></div>
             </div>
             <input type="number" id="offset-units" min="0" max="20" step="0.5" value="2">
           </div>
           <div class="param-row" id="offset-angle-row">
             <div class="param-text">
-              <label for="offset-angle" data-help="offset.angle" data-help-click>Angle</label>
+              <label for="offset-angle" data-help="offset.angle" data-help-click>Slant degrees</label>
               <div class="value-display" id="offset-angle-val"></div>
             </div>
             <input type="number" id="offset-angle" min="0" max="90" step="0.5" value="30">
           </div>
-          <div class="param-row" id="offset-axis-row">
-            <div class="param-text">
-              <label id="offset-axis-label" data-help="offset.axis" data-help-click>Offset axis</label>
-              <div class="value-display">direction of slant</div>
-            </div>
-            <div class="radio-group param-radios" role="radiogroup" aria-labelledby="offset-axis-label">
-              <label><input type="radio" name="offset-axis" value="x" checked> X</label>
-              <label><input type="radio" name="offset-axis" value="y"> Y</label>
-            </div>
-          </div>
         </div>
 
         <!-- Walls -->
-        <div class="control-section">
+        <div class="control-section full-only">
           <h3>Walls</h3>
           <div class="control-group">
             <label for="wall-thickness" data-help="walls.thickness" data-help-click>Wall thickness (mm)</label>
@@ -188,9 +205,43 @@
           </div>
         </div>
 
+        <!-- Compartments -->
+        <div class="control-section full-only">
+          <h3>Compartments</h3>
+          <div class="param-row param-row-wide">
+            <div class="param-text">
+              <label for="compartments-x" data-help="inside.compartments" data-help-click>Compartments</label>
+              <div class="value-display" id="compartments-val"></div>
+            </div>
+            <div class="param-pair">
+              <input type="number" id="compartments-x" min="1" max="10" step="1" value="1" aria-label="Compartments along X">
+              <span class="param-sep">×</span>
+              <input type="number" id="compartments-y" min="1" max="10" step="1" value="1" aria-label="Compartments along Y">
+            </div>
+          </div>
+          <div class="param-row" id="divider-walls-row">
+            <div class="param-text">
+              <label for="divider-walls" data-help="inside.walls" data-help-click>Walls</label>
+              <div class="value-display" id="divider-walls-val"></div>
+            </div>
+            <select id="divider-walls">
+              <option value="loops" selected>Loop each</option>
+              <option value="double">Loops + outer</option>
+              <option value="single">Shared</option>
+            </select>
+          </div>
+          <div class="param-row" id="loop-gap-row">
+            <div class="param-text">
+              <label for="loop-gap" data-help="inside.gap" data-help-click>Loop gap</label>
+              <div class="value-display" id="loop-gap-val"></div>
+            </div>
+            <input type="number" id="loop-gap" min="0" max="0.5" step="0.01" value="0.15">
+          </div>
+        </div>
+
         <!-- Print fit -->
-        <div class="control-section">
-          <h3>Print Fit</h3>
+        <div class="control-section full-only">
+          <h3>Print fit</h3>
           <div class="param-row">
             <div class="param-text">
               <label for="nozzle" data-help="fit.nozzle" data-help-click>Nozzle</label>
@@ -212,30 +263,12 @@
           </div>
         </div>
 
-        <!-- Base -->
-        <div class="control-section" id="base-section">
-          <h3>Base</h3>
+        <!-- End bin: drawer bins only -->
+        <div class="control-section full-only" id="end-bin-section">
+          <h3>End bin</h3>
           <div class="checkbox-group">
-            <input type="checkbox" id="include-base" checked>
-            <label for="include-base" data-help="base.include">Include gridfinity base profile</label>
-          </div>
-        </div>
-
-        <!-- End Bin -->
-        <div class="control-section" id="end-bin-section">
-          <h3>End Bin</h3>
-          <div id="end-bin-controls">
-            <div class="input-row">
-              <div class="control-group">
-                <label for="end-grid-x" data-help="end.size" data-help-click>X units</label>
-                <input type="number" id="end-grid-x" min="1" max="20" step="1" value="2">
-              </div>
-              <div class="control-group">
-                <label for="end-grid-y" data-help="end.size" data-help-click>Y units</label>
-                <input type="number" id="end-grid-y" min="1" max="20" step="1" value="2">
-              </div>
-            </div>
-            <div class="value-display" id="end-bin-info"></div>
+            <input type="checkbox" id="end-bin-hollow" checked>
+            <label for="end-bin-hollow" data-help="end.hollow">Hollow end bin</label>
           </div>
         </div>
 

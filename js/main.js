@@ -16,7 +16,7 @@ import {
   generateEndBin,
   generateWallPart,
   GRID_MM, HEIGHT_UNIT_MM, TOLERANCE_MM,
-  interiorHeightMM, footCount,
+  interiorHeightMM, footCount, DRAWER_SYSTEMS, DEFAULT_DRAWER_SYSTEM, compartmentLayout, DIVIDER_WALLS,
 } from './gridfinity-geometry.js';
 import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod, wallSpacing } from './wall-mounts.js';
 import { generateBinarySTL, downloadSTL } from './stl-export.js';
@@ -54,6 +54,7 @@ const SCENE_PALETTES = {
 };
 
 const THEME_STORAGE_KEY = 'slanted-gridfinity.theme';
+const MODE_STORAGE_KEY = 'slanted-gridfinity.mode';
 
 function currentTheme() {
   return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
@@ -271,8 +272,12 @@ function updateBinMesh() {
   }
 
   // End bin — only exists when a floor bin is slanted; it doesn't depend on
-  // wall thickness or the wall mount
-  const { wallThickness, orientation, wallSystem, mountMethod, ui: _ui, ...endParams } = params;
+  // the wall mount, or on wall thickness unless it is hollow
+  const {
+    wallThickness, orientation, wallSystem, mountMethod, endBinHollow,
+    compartmentsX: _cx, compartmentsY: _cy, dividerWalls: _dw, loopGap: _lg, ui: _ui, ...rest
+  } = params;
+  const endParams = { ...rest, hollow: endBinHollow, ...(endBinHollow ? { wallThickness } : {}) };
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -385,6 +390,31 @@ function updateThemeToggle() {
 }
 
 // ---------------------------------------------------------------------------
+// Settings mode: Core shows the essentials, Full every setting. Hidden
+// settings keep their values, so the defaults (openGrid on a wall) apply
+// until you change them in Full.
+// ---------------------------------------------------------------------------
+
+function readSettingsMode() {
+  return document.querySelector('input[name="settings-mode"]:checked')?.value === 'full' ? 'full' : 'core';
+}
+
+function applySettingsMode() {
+  const mode = readSettingsMode();
+  document.getElementById('sidebar').dataset.mode = mode;
+  document.getElementById('settings-mode-val').textContent = mode === 'full' ? 'every setting' : 'the essentials';
+}
+
+function restoreSettingsMode() {
+  let saved = null;
+  try { saved = localStorage.getItem(MODE_STORAGE_KEY); } catch { /* storage unavailable */ }
+  // Only the two known modes; anything else falls back to Core
+  const mode = saved === 'full' ? 'full' : 'core';
+  document.querySelector(`input[name="settings-mode"][value="${mode}"]`).checked = true;
+  applySettingsMode();
+}
+
+// ---------------------------------------------------------------------------
 // UI parameter reading
 // ---------------------------------------------------------------------------
 
@@ -392,6 +422,11 @@ function updateThemeToggle() {
 function readOrientation() {
   const v = document.querySelector('input[name="orientation"]:checked')?.value;
   return v === 'vertical' ? 'vertical' : 'horizontal';
+}
+
+function readDrawerSystem() {
+  const v = document.getElementById('drawer-system').value;
+  return Object.hasOwn(DRAWER_SYSTEMS, v) ? v : DEFAULT_DRAWER_SYSTEM;
 }
 
 function readWallSystem() {
@@ -425,7 +460,7 @@ function syncMethodOptions() {
 
 // Size inputs that count grid units; fractional when divisions > 1. The main
 // bin's two (BIN_SIZE_IDS) take lengths instead when Size in is mm, cm or in.
-const UNIT_INPUT_IDS = ['grid-x', 'grid-y', 'end-grid-x', 'end-grid-y'];
+const UNIT_INPUT_IDS = ['grid-x', 'grid-y'];
 const BIN_SIZE_IDS = ['grid-x', 'grid-y'];
 const MAX_UNITS = 20;
 
@@ -449,6 +484,11 @@ function readDivisions() {
 function readSizeUnit() {
   const v = document.getElementById('size-unit').value;
   return Object.hasOwn(LENGTH_UNITS, v) ? v : 'units';
+}
+
+function readDividerWalls() {
+  const v = document.getElementById('divider-walls').value;
+  return DIVIDER_WALLS.includes(v) ? v : DIVIDER_WALLS[0];
 }
 
 function readOffsetMode() {
@@ -475,21 +515,40 @@ function snapUnits(v, divisions = readDivisions()) {
   return Math.min(MAX_UNITS, Math.max(1 / divisions, Math.round(v * divisions) / divisions));
 }
 
-// The pitch, in mm, of one grid unit along the bin's X and Y: on a wall the
-// board's spacing across and up it (the Unit size for a system without one),
-// in a drawer the Unit size both ways.
+// The pitch, in mm, of one grid unit along the bin's X and Y: the drawer or
+// wall system's own grid (across and up it on a wall), or the Unit size for
+// a system without one.
 function readPitch() {
   const unit = readGridMM();
-  if (readOrientation() !== 'vertical') return { x: unit, y: unit };
+  if (readOrientation() !== 'vertical') {
+    const spacing = DRAWER_SYSTEMS[readDrawerSystem()].spacing ?? unit;
+    return { x: spacing, y: spacing };
+  }
   const { across, up } = wallSpacing(readWallSystem(), unit);
   return { x: across, y: up };
+}
+
+// The chosen system, when it sets the grid instead of the Unit size
+function ownSpacingSystem() {
+  const system = readOrientation() === 'vertical'
+    ? WALL_SYSTEMS[readWallSystem()] : DRAWER_SYSTEMS[readDrawerSystem()];
+  return system.spacing ? system : null;
 }
 
 // Whether the bin stands on Gridfinity feet, which need a whole foot under it
 function hasFeet() {
   return readOrientation() === 'vertical'
     ? readWallSystem() === 'gridfinity'
-    : document.getElementById('include-base').checked;
+    : DRAWER_SYSTEMS[readDrawerSystem()].feet;
+}
+
+// The preview's section lines follow the floor bin's grid
+function syncSceneGrid() {
+  const unit = readOrientation() === 'vertical' ? readGridMM() : readPitch().x;
+  if (unit !== gridUnitMM) {
+    gridUnitMM = unit;
+    rebuildGrid();
+  }
 }
 
 // The bin's size as generator units of the pitch. A size in a length is the
@@ -562,8 +621,8 @@ function applyDivisions() {
 function readSlant(mode = readOffsetMode()) {
   const vertical = readOrientation() === 'vertical';
   const pitch = readPitch();
-  const axis = document.querySelector('input[name="offset-axis"]:checked')?.value === 'y' ? 'y' : 'x';
-  const slantPitch = vertical || axis === 'y' ? pitch.y : pitch.x;
+  // In a drawer the slant runs along X; on a wall, up the bin's Y size
+  const slantPitch = vertical ? pitch.y : pitch.x;
   const maxMM = MAX_UNITS * slantPitch;
   const wallH = Math.max(0, interiorHeightMM(readNumber('height-units', 12, parseInt)));
   if (mode === 'grid') {
@@ -593,37 +652,73 @@ function applyOffsetMode() {
   offsetModeShown = to;
 }
 
-// The end bin spans the slant, so its length along the offset axis tracks
-// the offset (rounded down to the division step); the cross axis stays free.
-function syncEndBinToOffset() {
-  const divisions = readDivisions();
-  const offset = readSlant().offsetUnits;
-  if (!(offset > 0)) return;
-  const axis = document.querySelector('input[name="offset-axis"]:checked')?.value || 'x';
-  // Round down so a fractional offset never makes the end bin overshoot the slant
-  const units = Math.min(MAX_UNITS, Math.max(1 / divisions, Math.floor(offset * divisions + 1e-9) / divisions));
-  document.getElementById(axis === 'x' ? 'end-grid-x' : 'end-grid-y').value = String(units);
+// A drawer bin sets its slant by grid offset, so the opening lines up with
+// the drawer's grid and the end bin; a wall has no such limit, so a wall bin
+// sets it by degrees. Core offers only that way; Full offers both.
+const SLANT_MODE_FOR = { horizontal: 'grid', vertical: 'angle' };
+
+// Each orientation keeps its own slant, so switching back restores it; a wall
+// bin starts at 30°.
+const slantSaved = { horizontal: null, vertical: { mode: 'angle', units: '2', angle: '30' } };
+let orientationShown = null;
+
+function swapSlantForOrientation() {
+  const to = readOrientation();
+  if (orientationShown !== null && orientationShown !== to) {
+    const units = document.getElementById('offset-units');
+    const angle = document.getElementById('offset-angle');
+    slantSaved[orientationShown] = { mode: readOffsetMode(), units: units.value, angle: angle.value };
+    const saved = slantSaved[to];
+    if (saved) {
+      document.querySelector(`input[name="offset-mode"][value="${saved.mode}"]`).checked = true;
+      units.value = saved.units;
+      angle.value = saved.angle;
+      offsetModeShown = saved.mode;  // restored, so nothing to carry over
+    }
+  }
+  orientationShown = to;
+}
+
+// In Core, switch to the orientation's way of setting the slant, carrying the
+// current slant over. Returns whether it changed anything.
+function applyCoreSlant() {
+  const want = SLANT_MODE_FOR[readOrientation()];
+  if (readSettingsMode() !== 'core' || readOffsetMode() === want) return false;
+  document.querySelector(`input[name="offset-mode"][value="${want}"]`).checked = true;
+  applyOffsetMode();
+  return true;
 }
 
 function readParams() {
   const divisions = readDivisions();
   const slant = readSlant();
+  const vertical = readOrientation() === 'vertical';
+  const size = readSize(divisions);
   return {
-    gridMM: readGridMM(),
+    // In a drawer the whole bin and its end bin follow the drawer system's
+    // grid; on a wall only the Gridfinity feet use it (pitchX/Y set the size)
+    gridMM: vertical ? readGridMM() : readPitch().x,
     divisions,
-    ...readSize(divisions),
+    ...size,
     heightUnits: readNumber('height-units', 12, parseInt),
     offsetUnits: slant.offsetUnits,
     offsetMM: slant.offsetMM,
-    offsetAxis: document.querySelector('input[name="offset-axis"]:checked')?.value === 'y' ? 'y' : 'x',
     wallThickness: readNumber('wall-thickness', 0.82),
-    includeBase: document.getElementById('include-base').checked,
+    includeBase: !vertical && hasFeet(),
     orientation: readOrientation(),
     wallSystem: readWallSystem(),
     mountMethod: readMountMethod(),
     fitClearance: readNumber('fit-clearance', 0),
-    endGridX: readUnits('end-grid-x', divisions),
-    endGridY: readUnits('end-grid-y', divisions),
+    endBinHollow: document.getElementById('end-bin-hollow').checked,
+    // Along the bin's X and Y as the page shows them (across and up on a wall)
+    compartmentsX: readNumber('compartments-x', 1, parseInt),
+    compartmentsY: readNumber('compartments-y', 1, parseInt),
+    dividerWalls: readDividerWalls(),
+    loopGap: readNumber('loop-gap', 0.15),
+    // The end bin spans the slant along X, rounded down to the division step
+    // so it never overshoots it, and matches the bin across it
+    endGridX: Math.min(MAX_UNITS, Math.max(1 / divisions, Math.floor(slant.offsetUnits * divisions + 1e-9) / divisions)),
+    endGridY: size.gridY,
     // How the sizes and slant were set, for labels and file names only
     ui: {
       sizeUnit: readSizeUnit(),
@@ -640,6 +735,15 @@ function readParams() {
 // Dimension info display
 // ---------------------------------------------------------------------------
 
+// One compartment's inside, in the page's X × Y (across × up on a wall,
+// where the generator's local axes are turned); none for an undivided bin
+function compartmentRow({ compartments: c }, vertical) {
+  if (c.nx * c.ny === 1 && !c.blocked) return [];
+  const [w, d] = vertical ? [c.depth, c.width] : [c.width, c.depth];
+  // A mount's floor holes can't sit under a divider, so it takes those away
+  return [['Compartment', `${c.blocked ? 'fewer for mount; ' : ''}${w.toFixed(1)} x ${d.toFixed(1)} mm`]];
+}
+
 function updateDimensionInfo(dims) {
   const mm = (v) => `${v.toFixed(1)} mm`;
   const pair = (a, b) => `${a.toFixed(1)} x ${b.toFixed(1)} mm`;
@@ -649,6 +753,7 @@ function updateDimensionInfo(dims) {
     ['Max pen length', mm(dims.maxPenLength), 'highlight', 'dims.maxPen'],
     ['Back (W x H)', pair(dims.outerDepth, dims.outerWidth)],
     ['Opening', pair(dims.innerDepth, dims.innerWidth)],
+    ...compartmentRow(dims, true),
     ['Out from wall', mm(dims.totalHeight)],
     ['Interior depth', mm(dims.interiorHeight)],
     ['Mount', dims.mount.fits ? dims.mount.label : 'does not fit'],
@@ -660,6 +765,7 @@ function updateDimensionInfo(dims) {
     ['Max pen length', mm(dims.maxPenLength), 'highlight', 'dims.maxPen'],
     ['Outer footprint', pair(dims.outerWidth, dims.outerDepth)],
     ['Interior', pair(dims.innerWidth, dims.innerDepth)],
+    ...compartmentRow(dims, false),
     ['Total height', mm(dims.totalHeight)],
     ['Interior height', mm(dims.interiorHeight)],
     ['Base height', mm(dims.baseHeight)],
@@ -699,20 +805,41 @@ function bindControls() {
   });
   updateThemeToggle();
 
+  restoreSettingsMode();
+  for (const radio of document.querySelectorAll('input[name="settings-mode"]')) {
+    radio.addEventListener('change', () => {
+      applySettingsMode();
+      try { localStorage.setItem(MODE_STORAGE_KEY, readSettingsMode()); } catch { /* storage unavailable */ }
+      if (applyCoreSlant()) {
+        applyOrientation();
+        updateValueDisplays();
+        scheduleRebuild();
+      }
+    });
+  }
+  if (applyCoreSlant()) {
+    applyOrientation();
+    updateValueDisplays();
+    scheduleRebuild();
+  }
+
   const controlIds = [
     'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units', 'offset-angle',
-    'wall-thickness', 'include-base', 'fit-clearance',
-    'end-grid-x', 'end-grid-y',
+    'wall-thickness', 'fit-clearance', 'end-bin-hollow',
+    'compartments-x', 'compartments-y', 'divider-walls', 'loop-gap',
   ];
 
   for (const id of controlIds) {
     const el = document.getElementById(id);
     el.addEventListener('input', () => {
-      // The end bin spans the slant, which the height sets too in Angle mode
-      if (['offset-units', 'offset-angle', 'height-units', 'grid-unit-mm'].includes(id)) syncEndBinToOffset();
       updateValueDisplays();
       scheduleRebuild();
     });
+  }
+
+  // One compartment has no dividers, so no choice of how to wall them
+  for (const id of ['compartments-x', 'compartments-y', 'divider-walls']) {
+    document.getElementById(id).addEventListener('input', applyOrientation);
   }
 
   // Snap a typed size like 1.3 to the nearest allowed step once it's committed
@@ -730,25 +857,26 @@ function bindControls() {
     radio.addEventListener('change', () => {
       applyOffsetMode();
       applyOrientation();
-      syncEndBinToOffset();
       updateValueDisplays();
       scheduleRebuild();
     });
   }
 
   // Unit size moves the scene's section lines too
-  document.getElementById('grid-unit-mm').addEventListener('input', () => {
-    const unit = readGridMM();
-    if (unit !== gridUnitMM) {
-      gridUnitMM = unit;
-      rebuildGrid();
-    }
+  document.getElementById('grid-unit-mm').addEventListener('input', syncSceneGrid);
+
+  // A drawer system brings its base and its grid, so sizes in grid units and
+  // the offset now mean different millimetres
+  document.getElementById('drawer-system').addEventListener('change', () => {
+    applyOrientation();
+    syncSceneGrid();
+    updateValueDisplays();
+    scheduleRebuild();
   });
 
   document.getElementById('grid-divisions').addEventListener('change', () => {
     applyDivisions();
     configureSizeInputs();
-    syncEndBinToOffset();
     updateValueDisplays();
     scheduleRebuild();
   });
@@ -756,7 +884,10 @@ function bindControls() {
   // Floor or wall: switch the controls that only apply to one, then reframe
   for (const radio of document.querySelectorAll('input[name="orientation"]')) {
     radio.addEventListener('change', () => {
+      swapSlantForOrientation();
+      applyCoreSlant();
       applyOrientation();
+      syncSceneGrid();
       updateValueDisplays();
       scheduleRebuild();
       flushRebuild();
@@ -782,15 +913,6 @@ function bindControls() {
     });
   }
 
-  // Radio buttons
-  for (const radio of document.querySelectorAll('input[name="offset-axis"]')) {
-    radio.addEventListener('change', () => {
-      syncEndBinToOffset();
-      updateValueDisplays();
-      scheduleRebuild();
-    });
-  }
-
   // Downloads: choose which models Export STL saves
   for (const id of ['download-bin', 'download-end-bin', 'download-part']) {
     document.getElementById(id).addEventListener('change', updateExportButton);
@@ -807,16 +929,19 @@ function bindControls() {
     const { ui } = params;
     const vertical = params.orientation === 'vertical';
     // The Unit size only matters where no board spacing replaces it
-    const ownSpacing = vertical && WALL_SYSTEMS[params.wallSystem].spacing;
-    const unitTag = params.gridMM !== GRID_MM && !ownSpacing ? `_unit${params.gridMM}mm` : '';
-    const axisTag = vertical ? 'up' : params.offsetAxis;
+    const unitTag = params.gridMM !== GRID_MM && !ownSpacingSystem() ? `_unit${params.gridMM}mm` : '';
+    const drawer = readDrawerSystem();
+    const drawerTag = !vertical && drawer !== DEFAULT_DRAWER_SYSTEM ? `_${drawer}` : '';
+    const axisTag = vertical ? 'up' : 'x';
     const methodTag = vertical && params.mountMethod ? `-${params.mountMethod}` : '';
     const wallTag = vertical ? `_wall-${params.wallSystem}${methodTag}` : '';
+    const cellTag = params.compartmentsX * params.compartmentsY > 1
+      ? `_cells${params.compartmentsX}x${params.compartmentsY}${params.dividerWalls === 'loops' ? '' : `-${params.dividerWalls}`}${params.dividerWalls !== 'single' ? `-gap${params.loopGap}` : ''}` : '';
     const fitTag = params.fitClearance ? `_fit${params.fitClearance > 0 ? '+' : ''}${params.fitClearance.toFixed(2)}` : '';
     // 2x2 in grid units, or 100mmx80mm; offset2x in grid units, or slant30degx
     const sizeTag = ui.sizeUnit === 'units' ? `${params.gridX}x${params.gridY}` : `${ui.sizeX}${ui.sizeUnit}x${ui.sizeY}${ui.sizeUnit}`;
     const slantTag = ui.offsetMode === 'angle' ? `${ui.offsetAngle}deg${axisTag}` : `${params.offsetUnits}${axisTag}`;
-    const base = `slanted-gridfinity-${sizeTag}x${params.heightUnits}_${ui.offsetMode === 'angle' ? 'slant' : 'offset'}${slantTag}${unitTag}${wallTag}${fitTag}`;
+    const base = `slanted-gridfinity-${sizeTag}x${params.heightUnits}_${ui.offsetMode === 'angle' ? 'slant' : 'offset'}${slantTag}${unitTag}${drawerTag}${wallTag}${cellTag}${fitTag}`;
 
     // Main bin
     if (wantBin) {
@@ -869,8 +994,22 @@ function bindControls() {
 const NOZZLES = ['0.2', '0.4', '0.6', '0.8'];
 const suggestedClearance = (nozzle) => (nozzle - 0.4) / 2;
 
-// On a wall the slant always runs up, the mount replaces the base, and
-// there's no row to end, so those controls only show for a floor bin.
+// The standard each system builds for, as the page title names it; a flat
+// bottom follows no standard, so the title is just 'Slanted Bin'
+const DRAWER_TITLES = { gridfinity: 'Gridfinity', flat: '', sortimo: 'Sortimo', multiboard: 'Multiboard' };
+const WALL_TITLES = {
+  gridfinity: 'Gridfinity', opengrid: 'openGrid', multiboard: 'Multiboard',
+  skadis: 'SKÅDIS', hsw: 'HSW', goews: 'GOEWS', cleat: 'French Cleat',
+};
+
+function applyTitle(vertical) {
+  const name = (vertical ? WALL_TITLES[readWallSystem()] : DRAWER_TITLES[readDrawerSystem()]) ?? '';
+  document.getElementById('app-title').textContent = name ? `Slanted ${name}` : 'Slanted Bin';
+  document.title = `Slanted ${name ? `${name} ` : ''}Bin Generator`;
+}
+
+// On a wall the mount replaces the base and there's no row to end, so the
+// drawer system and end bin choices only show for a floor bin.
 function applyOrientation() {
   const vertical = readOrientation() === 'vertical';
   const show = (id, on) => { document.getElementById(id).style.display = on ? '' : 'none'; };
@@ -881,17 +1020,31 @@ function applyOrientation() {
   show('mount-method-row', vertical && method !== null);
   document.getElementById('mount-method-val').textContent =
     method ? WALL_SYSTEMS[readWallSystem()].methods[method].hint : '';
-  show('offset-axis-row', !vertical);
-  show('base-section', !vertical);
+  show('drawer-system-row', !vertical);
   show('end-bin-section', !vertical);
+  // Double walls only mean something once there is a divider
+  const divided = readNumber('compartments-x', 1, parseInt) * readNumber('compartments-y', 1, parseInt) > 1;
+  show('divider-walls-row', divided);
+  show('loop-gap-row', divided && readDividerWalls() !== 'single');
   // A board with its own spacing replaces the Unit size input
-  const ownSpacing = vertical && Boolean(WALL_SYSTEMS[readWallSystem()].spacing);
+  const ownSpacing = Boolean(ownSpacingSystem());
   show('grid-unit-mm', !ownSpacing);
   show('grid-unit-fixed', ownSpacing);
   const angle = readOffsetMode() === 'angle';
   show('offset-units-row', !angle);
   show('offset-angle-row', angle);
-  document.getElementById('orientation-val').textContent = vertical ? 'on a wall' : 'in a drawer';
+  // Names the system too, since Core hides its picker: 'on a wall' / 'openGrid'
+  const systemName = vertical
+    ? WALL_SYSTEMS[readWallSystem()].label.replace(/ \(.*\)$/, '')
+    : document.getElementById('drawer-system').selectedOptions[0]?.textContent ?? '';
+  // Two lines, so the longer names don't run into the radio buttons
+  document.getElementById('orientation-val').replaceChildren(
+    vertical ? 'on a wall' : 'in a drawer', document.createElement('br'), systemName,
+  );
+  applyTitle(vertical);
+  // On a wall the height reaches out from the board, so it reads as depth
+  document.getElementById('height-heading').textContent = vertical ? 'Depth' : 'Height';
+  document.getElementById('height-units-label').textContent = vertical ? 'Depth units' : 'Height units';
 }
 
 // mm with at most one decimal, no trailing zero: 40, 40.9
@@ -905,14 +1058,18 @@ function updateValueDisplays() {
   const unit = readGridMM();
   const vertical = params.orientation === 'vertical';
   const pitch = { x: params.pitchX, y: params.pitchY };
-  const system = WALL_SYSTEMS[params.wallSystem];
+  const system = ownSpacingSystem();
   const setText = (id, text) => { document.getElementById(id).textContent = text; };
 
   const fit = readNumber('fit-clearance', 0);
   setText('fit-clearance-val', fit === 0 ? 'mm per side; published fits' : `mm per side; ${fit > 0 ? 'looser' : 'tighter'}`);
 
-  // Unit size: the board's spacing on a wall that has one, else the input
-  if (vertical && system.spacing) {
+  // What the drawer system puts under the bin
+  const drawer = DRAWER_SYSTEMS[readDrawerSystem()];
+  setText('drawer-system-val', drawer.feet ? 'feet for a baseplate' : `flat floor${drawer.spacing ? `, ${drawer.spacing} mm grid` : ''}`);
+
+  // Unit size: the system's own grid where it has one, else the input
+  if (system) {
     setText('grid-unit-fixed', `${fmtPitch(pitch)} mm`);
     setText('grid-unit-note', `${system.label.replace(/ \(.*\)$/, '')} spacing`);
   } else {
@@ -943,7 +1100,9 @@ function updateValueDisplays() {
 
   // Height
   const hu = params.heightUnits;
-  setText('height-units-val', `${(hu * HEIGHT_UNIT_MM).toFixed(0)}mm total, ${interiorHeightMM(hu).toFixed(0)}mm inside`);
+  // A flat floor is the 2.25 mm slab, 4.75 mm less than Gridfinity feet
+  const totalMM = hu * HEIGHT_UNIT_MM - (vertical || hasFeet() ? 0 : 4.75);
+  setText('height-units-val', `${totalMM.toFixed(0)}mm ${vertical ? 'deep' : 'total'}, ${interiorHeightMM(hu).toFixed(0)}mm inside`);
 
   // Slant: offset and angle are two views of one lean
   const wallH = Math.max(0, interiorHeightMM(hu));
@@ -958,14 +1117,34 @@ function updateValueDisplays() {
   // Max pen length: 3D diagonal from one bottom interior corner to the
   // opposite top interior corner.  Uses interior dimensions (innerW/innerD)
   // so the measurement reflects the actual space a pen can occupy.
+  // Pens go in one compartment, so it measures that (the whole inside when
+  // undivided)
   const wt = params.wallThickness;
-  const intW = params.gridX * params.pitchX - TOLERANCE_MM - 2 * wt;
-  const intD = params.gridY * params.pitchY - TOLERANCE_MM - 2 * wt;
-  // On a wall the slant runs up the bin's Y size (its height on the wall)
-  const axis = vertical ? 'y' : params.offsetAxis;
-  // Pen spans from bottom near-corner to top far-corner of interior
-  const spanOffset = params.offsetMM + (axis === 'x' ? intW : intD);
-  const spanCross = axis === 'x' ? intD : intW;
+  const cells = compartmentLayout(
+    params.gridX * params.pitchX - TOLERANCE_MM, params.gridY * params.pitchY - TOLERANCE_MM,
+    wt, params.compartmentsX, params.compartmentsY, params.dividerWalls, params.loopGap,
+  );
+  const intW = cells.cellW;
+  const intD = cells.cellD;
+  const walls = cells.mode === 'single' ? `${fmtMM(wt)}mm dividers`
+    : cells.gap > 0 ? `loops ${cells.gap.toFixed(2)}mm apart`
+    : cells.mode === 'loops' ? `${fmtMM(2 * wt)}mm dividers` : `${fmtMM(2 * wt)}mm walls`;
+  setText('divider-walls-val', {
+    loops: 'a ring per compartment',
+    double: 'rings in an outer wall',
+    single: 'one-line dividers',
+  }[cells.mode]);
+  // Under twice the slicers' usual 0.049 mm closing radius, the gap closes
+  const gap = params.loopGap;
+  setText('loop-gap-val', gap === 0 ? 'mm; loops touch' : gap < 0.1 ? 'mm; your slicer may close it' : 'mm between loops');
+  setText('compartments-val', cells.nx * cells.ny === 1
+    ? (params.compartmentsX * params.compartmentsY > 1 ? 'too small to divide' : '1 × 1: one open bin')
+    : `${cells.capped ? `capped at ${cells.nx} × ${cells.ny}, ` : ''}${fmtMM(cells.cellW)} × ${fmtMM(cells.cellD)}mm each, ${walls}`);
+  // In a drawer the slant runs along X; on a wall, up the bin's Y size
+  // (its height on the wall). Pen spans from bottom near-corner to top
+  // far-corner of interior
+  const spanOffset = params.offsetMM + (vertical ? intD : intW);
+  const spanCross = vertical ? intW : intD;
   const maxPen = Math.sqrt(spanOffset * spanOffset + spanCross * spanCross + wallH * wallH);
   setText('diagonal-val', `Max pen length: ${maxPen.toFixed(1)}mm`);
   setText('wall-thickness-val', `${wt.toFixed(2)}mm`);
@@ -1017,8 +1196,8 @@ function renderFrame() {
 // Inputs the browser restored on reload count as the current choice
 sizeUnitShown = readSizeUnit();
 offsetModeShown = readOffsetMode();
+orientationShown = readOrientation();
 configureSizeInputs();
-syncEndBinToOffset();
 applyOrientation();
 updateValueDisplays();
 createModelToggles();
