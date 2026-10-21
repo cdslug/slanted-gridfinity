@@ -59,6 +59,9 @@ const BRIDGE_Z_BOTTOM = -BASE_HEIGHT_MM + 4.75; // = -2.25
 // this, and its slanted top is never thinner than MIN_CAP_MM vertically
 const MIN_CAVITY_MM = 1;
 const MIN_CAP_MM = 0.6;
+// A fully hollow end bin's foot cavities open into the body through the slab
+// this far in from the foot's top edge (see addFootCavity)
+const CHIMNEY_INSET_MM = 4;
 
 // Magnet holes for a magnetic (e.g. wall-mounted) baseplate: 6 x 2mm magnets
 // in 6.5 x 2.4mm holes, open on the foot's underside, centred 8mm in from
@@ -417,21 +420,37 @@ function addFeet(mesh, gridX, gridY, centerOffset, cornerSegments, gridMM, divis
   }
 }
 
-// A plain foot's cavity, faces pointing into it: the foot profile's three
-// edges (45° chamfer, vertical, 45° chamfer) offset `t` square to each, as
-// horizontal insets at height dz above the foot's underside, from `t` above
-// the underside to `t / 2` below the foot's top. Its top ring rises as a
-// chimney to the body cavity's floor (`cavity`, see endBinCavity), through
-// the faces where foot and body touch: one cavity shell, so the winding
-// stays zero across them. A chimney keeps to the body cavity's span along
-// the offset, `t` in; the rest of the ring is roofed over, and a foot wholly
-// outside it (or with no body cavity) stays sealed.
+// A plain foot's cavity, faces pointing into it, as horizontal insets at
+// height dz above the foot's underside, from `t` above the underside to
+// `t / 2` below the foot's top: the foot profile's lower chamfer and
+// vertical edge offset `2t` square to each, then a 45° taper in to
+// CHIMNEY_INSET_MM. Two wall thicknesses print as two lines per layer
+// bonded side by side; one line alone let a foot split off along its
+// layers under a firm press. That top ring rises as a chimney to the body cavity's
+// floor (`cavity`, see endBinCavity), through the faces where foot and body
+// touch: one cavity shell, so the winding stays zero across them.
+//
+// The inset keeps the slab between neighbouring chimneys wide: slicers lay
+// wall loops around each chimney and solid infill between them, so the slab
+// spans the gaps between the feet (wide where four rounded corners meet) in
+// straight lines. Chimneys right at the foot edges left only a web of wall
+// loops there, which curled over the gap and sagged onto the baseplate.
+//
+// A chimney keeps to the body cavity's span along the offset, `t` in; the
+// rest of the ring is roofed over, and a foot wholly outside it (or with no
+// body cavity) stays sealed.
 function addFootCavity(mesh, cx, cy, footTop, cornerSegments, fit, t, cavity) {
-  const s = t * Math.SQRT2;
-  const insetAt = (dz) => Math.min(4.75 - dz + s, Math.max(2.95 - dz + s, 2.15 + t));
+  const wall = 2 * t;
+  const s = wall * Math.SQRT2;
+  const wallInset = 2.15 + wall, taperFrom = 2.6 + s - wall;
+  const chimney = Math.max(CHIMNEY_INSET_MM, wallInset);
+  const insetAt = (dz) => (dz <= taperFrom
+    ? Math.max(2.95 - dz + s, wallInset)
+    : Math.min(chimney, wallInset + dz - taperFrom));
   const bottom = t, top = 4.75 - t / 2;
   if (top - bottom < MIN_CAVITY_MM) return;
-  const levels = [bottom, 0.8 + s - t, 2.6 + s - t, top].filter((dz) => dz >= bottom && dz <= top);
+  const levels = [bottom, 0.8 + s - wall, taperFrom, taperFrom + chimney - wallInset, top]
+    .filter((dz, i, all) => dz >= bottom && dz <= top && (i === 0 || dz > all[i - 1] + 1e-6));
   const rings = [];
   for (const dz of levels) {
     // A negative clearance fattens the foot, so it only ever thickens the walls
