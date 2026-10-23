@@ -17,6 +17,7 @@
  */
 
 import * as THREE from 'three';
+import { toolAction } from './tool-action.js';
 
 const WHEEL_ZOOM_SPEED = 0.0015;  // per pixel of mouse-wheel delta
 const PINCH_ZOOM_SPEED = 0.01;    // per pixel of ctrl+wheel (pinch) delta
@@ -234,9 +235,11 @@ export function setupCameraControls({ camera, controls, canvas, getFrameObjects,
     const key = e.key.toLowerCase();
     if (VIEW_KEYS[key]) {
       setView(VIEW_KEYS[key]);
+      toolAction('view_key', VIEW_KEYS[key], { once: true });
       e.preventDefault();
     } else if (key === 'f') {
       fit();
+      toolAction('view_key', 'fit', { once: true });
       e.preventDefault();
     }
   });

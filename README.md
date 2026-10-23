@@ -331,6 +331,25 @@ reads like `100mmx80mm`, and a slant set by angle like `a30degx`. On a wall
 the axis is `up`, and `-part` follows the files when a mount part is
 exported. Nothing listens unless the host page adds a listener.
 
+It fires the same event for the other things you use, with `once: true` on
+each so a listener can count it once per page load:
+
+| `action` | `detail` | When |
+| --- | --- | --- |
+| `export_system` | `drawer:sortimo`, `wall:opengrid:<method>` | Export: where the bin goes |
+| `export_cells` | `2x3:<divider walls>` | Export with more than one compartment |
+| `export_end` | `body`, `solid` or `full` | Export with the end bin: its fill |
+| `export_mode` | `core` or `full` | Export: the settings mode |
+| `mode` | `core` or `full` | Settings mode switched |
+| `help` | the help id, e.g. `mount.drawer` | A help tooltip opened |
+| `theme` | `light` or `dark` | Theme toggled |
+| `model_toggle`, `model_opacity` | `bin`, `endBin` or `part` | A viewer chip clicked or dragged |
+| `view_key` | `front` … `iso`, or `fit` | A view shortcut key |
+| `dims` | `open` or `close` | The dimensions panel tapped (phones) |
+
+Settings changes fire ordinary `change` events, so a host can see which
+control changed from the event's target.
+
 ## Contributing
 
 This project was built with AI coding tools by someone without a web

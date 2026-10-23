@@ -24,6 +24,7 @@ import { generateBinarySTL, downloadSTL } from './stl-export.js';
 import { setupCameraControls } from './camera-controls.js';
 import { createModelToggleButton } from './model-toggle-button.js';
 import { initParamHelp } from './param-help.js';
+import { toolAction } from './tool-action.js';
 
 // ---------------------------------------------------------------------------
 // Scene colors, one palette per theme
@@ -227,8 +228,16 @@ function createModelToggles() {
       active: view.visible,
       color: sceneColors[`${key}Chip`],
       opacity: view.opacity,
-      onToggle: () => { view.visible = !view.visible; applyModelView(key); },
-      onOpacityChange: (opacity) => { view.opacity = opacity; applyModelView(key); },
+      onToggle: () => {
+        view.visible = !view.visible;
+        applyModelView(key);
+        toolAction('model_toggle', key, { once: true });
+      },
+      onOpacityChange: (opacity) => {
+        view.opacity = opacity;
+        applyModelView(key);
+        toolAction('model_opacity', key, { once: true });
+      },
     });
     container.appendChild(view.chip.el);
     applyModelView(key);
@@ -808,6 +817,7 @@ function updateDimensionInfo(dims) {
 function bindControls() {
   document.getElementById('theme-toggle').addEventListener('click', () => {
     setTheme(currentTheme() === 'dark' ? 'light' : 'dark');
+    toolAction('theme', currentTheme(), { once: true });
   });
   updateThemeToggle();
 
@@ -816,6 +826,7 @@ function bindControls() {
     radio.addEventListener('change', () => {
       applySettingsMode();
       try { localStorage.setItem(MODE_STORAGE_KEY, readSettingsMode()); } catch { /* storage unavailable */ }
+      toolAction('mode', readSettingsMode(), { once: true });
       if (applyCoreSlant()) {
         applyOrientation();
         updateValueDisplays();
@@ -977,18 +988,24 @@ function bindControls() {
     const gotPart = wantPart && partMesh && partInfo;
     const bins = wantBin && gotEnd ? 'both' : wantBin ? 'bin' : gotEnd ? 'end' : '';
     const parts = gotPart ? (bins ? `${bins}-part` : 'part') : bins;
-    document.dispatchEvent(new CustomEvent('tool-action', {
-      detail: {
-        action: 'export',
-        detail: `${parts}:${sizeTag}:h${params.heightUnits}:${ui.offsetMode === 'angle' ? 'a' : 'o'}${slantTag}`,
-      },
-    }));
+    toolAction('export', `${parts}:${sizeTag}:h${params.heightUnits}:${ui.offsetMode === 'angle' ? 'a' : 'o'}${slantTag}`);
+    // And the choices behind it, each counted once per page load: where the
+    // bin goes, its compartments, the end bin's fill and the settings mode
+    toolAction('export_system', params.orientation === 'vertical'
+      ? `wall:${params.wallSystem}${params.mountMethod ? `:${params.mountMethod}` : ''}`
+      : `drawer:${readDrawerSystem()}`, { once: true });
+    if (params.compartmentsX * params.compartmentsY > 1) {
+      toolAction('export_cells', `${params.compartmentsX}x${params.compartmentsY}:${params.dividerWalls}`, { once: true });
+    }
+    if (gotEnd) toolAction('export_end', params.endBinHollow, { once: true });
+    toolAction('export_mode', readSettingsMode(), { once: true });
   });
 
   // Dimensions overlay: on phones it shows only the max pen length until
   // tapped open (the toggle is inert on desktop, where every row shows).
   document.getElementById('dim-toggle').addEventListener('click', (e) => {
     const expanded = document.getElementById('info-overlay').classList.toggle('expanded');
+    toolAction('dims', expanded ? 'open' : 'close', { once: true });
     e.currentTarget.setAttribute('aria-expanded', String(expanded));
   });
 }

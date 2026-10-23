@@ -18,6 +18,7 @@
  */
 
 import { drawDiagram, DIAGRAMS } from './help-diagrams.js';
+import { toolAction } from './tool-action.js';
 
 // ---------------------------------------------------------------------------
 // Registry: the one place the help words live.
@@ -341,6 +342,7 @@ function openTip(anchor, pinned = false) {
   render(entry);
   place(anchor);
   anchor.setAttribute('aria-describedby', TIP_ID);
+  toolAction('help', anchor.dataset.help, { once: true });
 }
 
 function hideTip() {
