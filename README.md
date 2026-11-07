@@ -23,7 +23,7 @@ What the design aims for:
 - **Fast printing.** The walls are a few extrusion lines rather than thick,
   heavy walls. The default 1.20 mm is three lines from a 0.4 mm nozzle, so
   each layer on the slant has enough under it to stick. With a 0.8 mm nozzle,
-  set 0.82 mm for single-line walls.
+  set 0.82 mm and uncheck *Measure across the slant* for single-line walls.
 - **Shallow drawers.** The diagonal layout makes better use of limited height.
 - **Easy access.** Pens aren't buried in a pile, so you can see and grab the
   one you want.
@@ -94,7 +94,10 @@ the repo root, it would also hand `.git/` to anyone who can reach it.
   that still seat in a standard baseplate
 - Slant along X or Y, set by an offset in half grid units (the opening lands
   on the grid) or by an angle from 0 to 90 degrees
-- Adjustable wall thickness and corner resolution
+- Adjustable wall thickness and corner resolution. By default the leaning walls
+  are that thick square to their face, so each layer prints a little wider
+  along the slant; uncheck *Measure across the slant* to set each layer's width
+  instead
 - Drawer system picker: Gridfinity feet, a flat bottom, Sortimo inset boxes
   (52 mm modules) or Multiboard bins (25 mm grid), with grid units sized to
   the system's grid (see [Drawer systems](#drawer-systems))

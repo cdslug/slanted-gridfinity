@@ -36,6 +36,18 @@ function hdim(x1, x2, y) {
 function vdim(x, y1, y2) {
   return el('path', { class: 'dg-dim', d: `M${x} ${y1}V${y2}M${x - 4} ${y1}h8M${x - 4} ${y2}h8` });
 }
+// The same along any direction, ticks square to it.
+function adim(x1, y1, x2, y2) {
+  const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const tx = -(y2 - y1) / len * 4, ty = (x2 - x1) / len * 4;
+  const f = (n) => n.toFixed(2);
+  return el('path', {
+    class: 'dg-dim',
+    d: `M${f(x1)} ${f(y1)}L${f(x2)} ${f(y2)}`
+      + `M${f(x1 - tx)} ${f(y1 - ty)}l${f(2 * tx)} ${f(2 * ty)}`
+      + `M${f(x2 - tx)} ${f(y2 - ty)}l${f(2 * tx)} ${f(2 * ty)}`,
+  });
+}
 
 // The side view, along the offset axis. Proportions are schematic: walls,
 // gap and base are drawn thicker than scale so they can be seen at all.
@@ -120,6 +132,19 @@ export const DIAGRAMS = {
     const { nodes, floor, top } = scene(ctx);
     const at = [floor - 14, top + 16];
     const out = [...nodes];
+    if (ctx.wallAcrossSlant !== false) {
+      // Square to the leaning wall: from its outer face along the normal
+      const rise = floor - top, len = Math.hypot(DX, rise);
+      const across = T * rise / len;
+      for (const y of at) {
+        const x = leftWallAt(y, floor, top);
+        out.push(adim(x, y, x + across * rise / len, y + across * DX / len));
+      }
+      const x = leftWallAt(at[1], floor, top) + T + 6;
+      out.push(label(x, at[1] + 3, 'square to the wall'), label(x, at[1] + 14, 'at every height'));
+      out.push(caption('side view · layers print wider than the wall'));
+      return out;
+    }
     for (const y of at) {
       const x = leftWallAt(y, floor, top);
       out.push(hdim(x, x + T, y));

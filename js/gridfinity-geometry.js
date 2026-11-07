@@ -138,12 +138,27 @@ export const COMPARTMENTS_MAX = 10;
 export const LOOP_GAP_MAX = 0.5;
 const MIN_COMPARTMENT_MM = 5;   // fewer cells along an axis rather than narrower
 
+// How wide each layer prints a wall that leans with the slant. Measured
+// across the slant (`acrossSlant`, the default), the wall is `t` thick at
+// right angles to its face, so a layer is t / cos(angle) wide along the
+// slant; otherwise a layer is `t` wide. Walls along the slant stand straight
+// and stay `t` either way. Capped so the inside keeps MIN_COMPARTMENT_MM
+// along the slant (`alongMM` is the bin's outside length that way).
+export function slantWallThickness(t, wallH, totalOffset, alongMM, acrossSlant = true) {
+  if (!acrossSlant || !(wallH > 0) || !(totalOffset > 0)) return t;
+  const wide = t * Math.hypot(wallH, totalOffset) / wallH;
+  return Math.min(wide, Math.max(t, (alongMM - MIN_COMPARTMENT_MM) / 2));
+}
+
 // Cell counts, wall widths and the cell size inside an outerW x outerD bin.
 // Counts drop until each cell is at least MIN_COMPARTMENT_MM across.
-// `wall` and `divider` run from the bin's outside to a cell's inside and
-// between cells' insides, gap included; `gap` is 0 for single dividers and
-// an undivided bin.
+// `t` is the wall thickness, or [along X, along Y] when the walls facing
+// one axis are wider (see slantWallThickness). `wallX`/`wallY` run from the
+// bin's outside to a cell's inside and `dividerX`/`dividerY` between cells'
+// insides, gap included, each measured along its axis; `gap` is 0 for
+// single dividers and an undivided bin.
 export function compartmentLayout(outerW, outerD, t, nx = 1, ny = 1, mode = 'loops', gap = 0) {
+  const [tx, ty] = Array.isArray(t) ? t : [t, t];
   const count = (n) => Math.min(COMPARTMENTS_MAX, Math.max(1, Math.floor(Number.isFinite(n) ? n : 1)));
   const want = [count(nx), count(ny)];
   if (!DIVIDER_WALLS.includes(mode)) mode = 'loops';
@@ -151,14 +166,19 @@ export function compartmentLayout(outerW, outerD, t, nx = 1, ny = 1, mode = 'loo
   let [cx, cy] = want;
   for (;;) {
     const split = cx > 1 || cy > 1;
-    const wall = split && mode === 'double' ? 2 * t + g : t;
-    const divider = mode === 'single' ? t : 2 * t + g;
-    const cellW = (outerW - 2 * wall - (cx - 1) * divider) / cx;
-    const cellD = (outerD - 2 * wall - (cy - 1) * divider) / cy;
+    const wallOf = (w) => split && mode === 'double' ? 2 * w + g : w;
+    const dividerOf = (w) => mode === 'single' ? w : 2 * w + g;
+    const wallX = wallOf(tx), wallY = wallOf(ty);
+    const dividerX = dividerOf(tx), dividerY = dividerOf(ty);
+    const cellW = (outerW - 2 * wallX - (cx - 1) * dividerX) / cx;
+    const cellD = (outerD - 2 * wallY - (cy - 1) * dividerY) / cy;
     const shrinkX = cx > 1 && cellW < MIN_COMPARTMENT_MM;
     const shrinkY = cy > 1 && cellD < MIN_COMPARTMENT_MM;
     if (!shrinkX && !shrinkY) {
-      return { nx: cx, ny: cy, mode, wall, divider, gap: split ? g : 0, cellW, cellD, capped: cx < want[0] || cy < want[1] };
+      return {
+        nx: cx, ny: cy, mode, tx, ty, wallX, wallY, dividerX, dividerY,
+        gap: split ? g : 0, cellW, cellD, capped: cx < want[0] || cy < want[1],
+      };
     }
     if (shrinkX) cx--;
     if (shrinkY) cy--;
@@ -166,12 +186,12 @@ export function compartmentLayout(outerW, outerD, t, nx = 1, ny = 1, mode = 'loo
 }
 
 // Each cell's rectangle, centred on the bin at the origin
-function compartmentRects({ nx, ny, wall, divider, cellW, cellD }, outerW, outerD) {
+function compartmentRects({ nx, ny, wallX, wallY, dividerX, dividerY, cellW, cellD }, outerW, outerD) {
   const rects = [];
   for (let i = 0; i < nx; i++) {
     for (let j = 0; j < ny; j++) {
-      const x0 = -outerW / 2 + wall + i * (cellW + divider);
-      const y0 = -outerD / 2 + wall + j * (cellD + divider);
+      const x0 = -outerW / 2 + wallX + i * (cellW + dividerX);
+      const y0 = -outerD / 2 + wallY + j * (cellD + dividerY);
       rects.push({ x0, y0, x1: x0 + cellW, y1: y0 + cellD, i, j });
     }
   }
@@ -180,12 +200,15 @@ function compartmentRects({ nx, ny, wall, divider, cellW, cellD }, outerW, outer
 
 // A cell's outline, CCW from its +X -Y corner: rounded like the bin's inner
 // wall where it meets the bin's corner, square where dividers meet. `grow`
-// widens it on every side, for the outside of a cell's own ring.
-function compartmentOutline(rect, { nx, ny, wall }, cornerSegments, grow = 0) {
+// ([along X, along Y]) widens it on every side, for the outside of a cell's
+// own ring.
+function compartmentOutline(rect, { nx, ny, wallX, wallY }, cornerSegments, grow = [0, 0]) {
   const { i, j } = rect;
-  const x0 = rect.x0 - grow, y0 = rect.y0 - grow, x1 = rect.x1 + grow, y1 = rect.y1 + grow;
+  const [gx, gy] = grow;
+  const x0 = rect.x0 - gx, y0 = rect.y0 - gy, x1 = rect.x1 + gx, y1 = rect.y1 + gy;
   const halfAngle = Math.PI / (4 * cornerSegments);
-  let R = Math.min(BASE_CORNER_RADIUS - (wall - grow) / Math.cos(halfAngle), (x1 - x0) / 2, (y1 - y0) / 2);
+  const inset = Math.max(wallX - gx, wallY - gy);
+  let R = Math.min(BASE_CORNER_RADIUS - inset / Math.cos(halfAngle), (x1 - x0) / 2, (y1 - y0) / 2);
   if (R < 0.01) R = 0;
   const left = i === 0, right = i === nx - 1, bottom = j === 0, top = j === ny - 1;
   const corners = [
@@ -529,6 +552,7 @@ export function generateSlantedBin({
   offsetMM,
   offsetAxis = 'x',
   wallThickness = 1.2,
+  wallAcrossSlant = true,
   includeBase = true,
   orientation = 'horizontal',
   wallSystem = DEFAULT_WALL_SYSTEM,
@@ -567,6 +591,10 @@ export function generateSlantedBin({
   const outerD = binOuterMM(gridY, pitchY);
   const wallH = interiorHeightMM(heightUnits);
   const t = wallThickness;
+  // The walls facing the slant lean, and may print wider (slantWallThickness)
+  const slantX = offsetAxis === 'x';
+  const tSlant = slantWallThickness(t, wallH, totalOffset, slantX ? outerW : outerD, wallAcrossSlant);
+  const tx = slantX ? tSlant : t, ty = slantX ? t : tSlant;
 
   function getOffset(z) {
     if (z <= 0 || wallH <= 0) return [0, 0];
@@ -583,9 +611,9 @@ export function generateSlantedBin({
 
   // --- WALLS ---
   const halfAngle = Math.PI / (4 * cornerSegments);
-  const innerR = Math.max(0.01, BASE_CORNER_RADIUS - t / Math.cos(halfAngle));
-  const innerW = outerW - 2 * t;
-  const innerD = outerD - 2 * t;
+  const innerR = Math.max(0.01, BASE_CORNER_RADIUS - Math.max(tx, ty) / Math.cos(halfAngle));
+  const innerW = outerW - 2 * tx;
+  const innerD = outerD - 2 * ty;
 
   const wallOuterBottom = makeRing(0, outerW, outerD, BASE_CORNER_RADIUS, getOffset(0), cornerSegments);
   const wallOuterTop = makeRing(wallH, outerW, outerD, BASE_CORNER_RADIUS, getOffset(wallH), cornerSegments);
@@ -604,7 +632,7 @@ export function generateSlantedBin({
   // Compartments, fewer along an axis whose dividers would cross a hole
   // the mount cuts through the floor
   const holesFit = (l) => floorHoles.every(h => compartmentRects(l, outerW, outerD).some(r => holeInRect(h, r)));
-  const layoutFor = (nx, ny) => compartmentLayout(outerW, outerD, t, nx, ny, dividerWalls, loopGap);
+  const layoutFor = (nx, ny) => compartmentLayout(outerW, outerD, [tx, ty], nx, ny, dividerWalls, loopGap);
   const wanted = layoutFor(compartmentsX, compartmentsY);
   const layout = [[wanted.nx, wanted.ny], [wanted.nx, 1], [1, wanted.ny], [1, 1]]
     .map(([nx, ny]) => layoutFor(nx, ny))
@@ -634,7 +662,7 @@ export function generateSlantedBin({
     // slicers merge touching shells (as with the feet)
     writeCap(mesh, flat(wallOuterBottom), floorHoles, at, 0, true);
     for (const r of compartmentRects(layout, outerW, outerD)) {
-      const outside = compartmentOutline(r, layout, cornerSegments, t);
+      const outside = compartmentOutline(r, layout, cornerSegments, [tx, ty]);
       const inside = compartmentOutline(r, layout, cornerSegments);
       const outsideTop = lift(outside, wallH), insideTop = lift(inside, wallH);
       addStrip(mesh, lift(outside, 0), outsideTop);
@@ -652,7 +680,7 @@ export function generateSlantedBin({
       // on the floor inside it, with floor showing in the gaps between
       addRingFace(mesh, wallOuterTop, wallInnerTop);
       addStrip(mesh, wallInnerBottom, wallInnerTop, true);
-      const rings = rects.map(r => compartmentOutline(r, layout, cornerSegments, t));
+      const rings = rects.map(r => compartmentOutline(r, layout, cornerSegments, [tx, ty]));
       writeCap(mesh, flat(wallInnerBottom), rings, at, 0, true);
       rings.forEach((ring, k) => {
         const ringTop = lift(ring, wallH);
@@ -721,8 +749,8 @@ export function generateSlantedBin({
     dimensions: {
       outerWidth: outerW,
       outerDepth: outerD,
-      innerWidth: outerW - 2 * layout.wall,
-      innerDepth: outerD - 2 * layout.wall,
+      innerWidth: outerW - 2 * layout.wallX,
+      innerDepth: outerD - 2 * layout.wallY,
       // Counts and sizes along local X and Y (turned on a wall, like the rest);
       // `blocked` when a mount's floor holes took dividers away
       compartments: {
@@ -738,6 +766,8 @@ export function generateSlantedBin({
       slantDiagonal,
       maxPenLength,
       wallThickness: t,
+      // Each layer's width on the walls facing the slant
+      slantWallLayer: tSlant,
       gridMM,
       orientation: vertical ? 'vertical' : 'horizontal',
       mount,
@@ -843,6 +873,7 @@ export function generateEndBin({
   endGridY = 2,
   hollow = 'body',
   wallThickness = 1.2,
+  wallAcrossSlant = true,
   fitClearance = 0,
   gridMM = GRID_MM,
   divisions = 1,
@@ -908,8 +939,10 @@ export function generateEndBin({
   const mode = END_BIN_HOLLOW.includes(hollow) ? hollow : END_BIN_HOLLOW[0];
   const hollowed = mode !== 'solid' && cuts.length > 0;
   const full = hollowed && mode === 'full';
-  // The top cap's vertical thickness: one wall thickness across each layer
-  const capZ = Math.max(t * slope, MIN_CAP_MM);
+  // The top cap's vertical thickness: each layer as wide as the main bin's
+  // leaning wall (one wall thickness across the slant by default)
+  const tCap = slantWallThickness(t, wallH, totalOffset, k === 0 ? endOuterW : endOuterD, wallAcrossSlant);
+  const capZ = Math.max(tCap * slope, MIN_CAP_MM);
   const cavity = hollowed ? endBinCavity({
     endOuterW, endOuterD, endCenter, cornerSegments, t, k,
     floorZ: full ? BRIDGE_Z_BOTTOM + t : 0,
