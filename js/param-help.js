@@ -146,9 +146,9 @@ export const PARAM_HELP = {
   // ── Walls ───────────────────────────────────────────────────────────────
   'walls.thickness': {
     title: 'Wall thickness',
-    meta: 'mm · default 0.82 · 0.40 to 2.00',
+    meta: 'mm · default 1.20 · 0.40 to 2.00',
     what: 'Measured horizontally and kept the same at every height, so each printed layer has the same wall width even where the wall leans.',
-    why: 'Match a whole number of your slicer\'s line widths: the default 0.82 mm is one line from a 0.8 mm nozzle, which prints fast. Thicker walls are stiffer but take twice their thickness off the inside in each direction.',
+    why: 'Match a whole number of line widths: the default 1.20 mm is three lines from a 0.4 mm nozzle, which hold to the layer below on the slant. With a 0.8 mm nozzle, 0.82 mm is one line and prints fast. Thicker walls are stiffer but shrink the inside.',
     note: 'A hollow end bin keeps this thickness for its walls and top. Fully hollow, its floor keeps it too, and its feet\'s walls get twice it.',
     diagram: 'wall',
   },

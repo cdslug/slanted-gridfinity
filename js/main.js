@@ -709,7 +709,7 @@ function readParams() {
     heightUnits: readNumber('height-units', 12, parseInt),
     offsetUnits: slant.offsetUnits,
     offsetMM: slant.offsetMM,
-    wallThickness: readNumber('wall-thickness', 0.82),
+    wallThickness: readNumber('wall-thickness', 1.2),
     includeBase: !vertical && hasFeet(),
     orientation: readOrientation(),
     wallSystem: readWallSystem(),

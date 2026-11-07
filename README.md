@@ -20,8 +20,10 @@ lift any single bin out without taking the row apart.
 
 What the design aims for:
 
-- **Fast printing.** The walls are a single extrusion line rather than thick,
-  heavy walls. The default 0.82 mm is one line from a 0.8 mm nozzle.
+- **Fast printing.** The walls are a few extrusion lines rather than thick,
+  heavy walls. The default 1.20 mm is three lines from a 0.4 mm nozzle, so
+  each layer on the slant has enough under it to stick. With a 0.8 mm nozzle,
+  set 0.82 mm for single-line walls.
 - **Shallow drawers.** The diagonal layout makes better use of limited height.
 - **Easy access.** Pens aren't buried in a pile, so you can see and grab the
   one you want.
