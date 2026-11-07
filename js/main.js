@@ -16,7 +16,7 @@ import {
   generateEndBin,
   generateWallPart,
   GRID_MM, HEIGHT_UNIT_MM, TOLERANCE_MM,
-  interiorHeightMM, footCount, DRAWER_SYSTEMS, DEFAULT_DRAWER_SYSTEM, compartmentLayout, DIVIDER_WALLS,
+  interiorHeightMM, footCount, DRAWER_SYSTEMS, DEFAULT_DRAWER_SYSTEM, compartmentLayout, slantWallThickness, DIVIDER_WALLS,
   END_BIN_HOLLOW,
 } from './gridfinity-geometry.js';
 import { WALL_SYSTEMS, DEFAULT_WALL_SYSTEM, resolveMethod, wallSpacing } from './wall-mounts.js';
@@ -284,10 +284,12 @@ function updateBinMesh() {
   // End bin — only exists when a floor bin is slanted; it doesn't depend on
   // the wall mount, or on wall thickness unless it is hollow
   const {
-    wallThickness, orientation, wallSystem, mountMethod, endBinHollow,
+    wallThickness, wallAcrossSlant, orientation, wallSystem, mountMethod, endBinHollow,
     compartmentsX: _cx, compartmentsY: _cy, dividerWalls: _dw, loopGap: _lg, ui: _ui, ...rest
   } = params;
-  const endParams = { ...rest, hollow: endBinHollow, ...(endBinHollow !== 'solid' ? { wallThickness } : {}) };
+  const endParams = {
+    ...rest, hollow: endBinHollow, ...(endBinHollow !== 'solid' ? { wallThickness, wallAcrossSlant } : {}),
+  };
   const endKey = params.offsetUnits > 0 && orientation === 'horizontal' ? JSON.stringify(endParams) : null;
   if (endKey !== endBinKey) {
     endBinKey = endKey;
@@ -719,6 +721,7 @@ function readParams() {
     offsetUnits: slant.offsetUnits,
     offsetMM: slant.offsetMM,
     wallThickness: readNumber('wall-thickness', 1.2),
+    wallAcrossSlant: document.getElementById('wall-across-slant').checked,
     includeBase: !vertical && hasFeet(),
     orientation: readOrientation(),
     wallSystem: readWallSystem(),
@@ -842,7 +845,7 @@ function bindControls() {
 
   const controlIds = [
     'grid-unit-mm', 'grid-x', 'grid-y', 'height-units', 'offset-units', 'offset-angle',
-    'wall-thickness', 'fit-clearance', 'end-bin-hollow',
+    'wall-thickness', 'wall-across-slant', 'fit-clearance', 'end-bin-hollow',
     'compartments-x', 'compartments-y', 'divider-walls', 'loop-gap',
   ];
 
@@ -1148,9 +1151,14 @@ function updateValueDisplays() {
   // Pens go in one compartment, so it measures that (the whole inside when
   // undivided)
   const wt = params.wallThickness;
+  const outerX = params.gridX * params.pitchX - TOLERANCE_MM;
+  const outerY = params.gridY * params.pitchY - TOLERANCE_MM;
+  // The slant runs along X in a drawer and up (Y) on a wall; the walls
+  // facing it lean, and print wider when measured across the slant
+  const wtSlant = slantWallThickness(wt, wallH, params.offsetMM, vertical ? outerY : outerX, params.wallAcrossSlant);
   const cells = compartmentLayout(
-    params.gridX * params.pitchX - TOLERANCE_MM, params.gridY * params.pitchY - TOLERANCE_MM,
-    wt, params.compartmentsX, params.compartmentsY, params.dividerWalls, params.loopGap,
+    outerX, outerY, vertical ? [wt, wtSlant] : [wtSlant, wt],
+    params.compartmentsX, params.compartmentsY, params.dividerWalls, params.loopGap,
   );
   const intW = cells.cellW;
   const intD = cells.cellD;
@@ -1175,7 +1183,9 @@ function updateValueDisplays() {
   const spanCross = vertical ? intW : intD;
   const maxPen = Math.sqrt(spanOffset * spanOffset + spanCross * spanCross + wallH * wallH);
   setText('diagonal-val', `Max pen length: ${maxPen.toFixed(1)}mm`);
-  setText('wall-thickness-val', `${wt.toFixed(2)}mm`);
+  setText('wall-thickness-val', wtSlant > wt + 0.005
+    ? `${wt.toFixed(2)}mm; ${wtSlant.toFixed(2)}mm per layer on the leaning walls`
+    : `${wt.toFixed(2)}mm`);
 }
 
 // ---------------------------------------------------------------------------

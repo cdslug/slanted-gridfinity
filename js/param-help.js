@@ -148,9 +148,18 @@ export const PARAM_HELP = {
   'walls.thickness': {
     title: 'Wall thickness',
     meta: 'mm · default 1.20 · 0.40 to 2.00',
-    what: 'Measured horizontally and kept the same at every height, so each printed layer has the same wall width even where the wall leans.',
-    why: 'Match a whole number of line widths: the default 1.20 mm is three lines from a 0.4 mm nozzle, which hold to the layer below on the slant. With a 0.8 mm nozzle, 0.82 mm is one line and prints fast. Thicker walls are stiffer but shrink the inside.',
+    what: 'Kept the same at every height. With Measure across the slant checked, the leaning walls are this thick square to their face; unchecked, every layer is this wide on every wall.',
+    why: 'Match a whole number of line widths: the default 1.20 mm is three lines from a 0.4 mm nozzle, which hold to the layer below on the slant. With a 0.8 mm nozzle, 0.82 mm measured level is one line and prints fast. Thicker walls are stiffer but shrink the inside.',
     note: 'A hollow end bin keeps this thickness for its walls and top. Fully hollow, its floor keeps it too, and its feet\'s walls get twice it.',
+    diagram: 'wall',
+  },
+
+  'walls.acrossSlant': {
+    title: 'Measure across the slant',
+    meta: 'checked or unchecked · default checked',
+    what: 'Checked, the walls that lean are the wall thickness square to their face, so each layer prints wider along the slant: 1.39 mm for 1.20 mm at 30°. Unchecked, each layer is the wall thickness wide.',
+    why: 'Checked gives each layer more of the one below to land on, so the slant strings less and keeps its strength when steep. Unchecked uses fewer lines and prints faster.',
+    note: 'The straight side walls are the same either way. Layers widen fast on steep slants (twice at 60°), capped so the inside keeps 5 mm.',
     diagram: 'wall',
   },
 
